@@ -1,0 +1,11 @@
+[
+  {
+    "id": "document",
+    "version": "1.0"
+  },
+  {
+    "id": "sat1",
+    "name": "DemoSat",
+    "position": { "cartographicDegrees": [0, 0, 7000000] }
+  }
+]
