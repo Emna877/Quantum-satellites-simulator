@@ -1,9 +1,0 @@
-fastapi
-uvicorn[standard]
-qiskit
-numpy
-pandas
-scikit-learn
-torch
-requests
-matplotlib

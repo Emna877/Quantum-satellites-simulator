@@ -2,14 +2,6 @@
 
 Project that simulates a LEO CubeSat QKD link (BB84) with AI-based anomaly detection and CesiumJS visualization.
 
-Architecture (ASCII):
-
-  [Orekit Orbit Generator] -> ephemeris (CZML/JSON) ->
-                                  |
-  [QKD Simulator (Qiskit)] -> key events -> Backend API -> Frontend (CesiumJS)
-                                  |
-                      [AI Detector (PyTorch/TensorFlow)]
-
 
 ## Setup
 See `setup_instructions.sh` for automated environment setup notes.
