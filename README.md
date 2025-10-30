@@ -6,8 +6,15 @@ Project that simulates a LEO CubeSat QKD link (BB84) with AI-based anomaly detec
 ## Setup
 See `setup_instructions.sh` for automated environment setup notes.
 
+- A top-level `requirements.txt` is provided for Python dependencies.
+- A top-level `.gitignore` has been added to avoid committing virtual environments, node_modules, editor configs, and build artifacts.
+
+Recommended quick setup:
+- Create and activate a virtual environment: `python -m venv .venv && .\.venv\Scripts\activate` (Windows) or `python3 -m venv .venv && source .venv/bin/activate` (Unix).
+- Install Python deps: `pip install -r requirements.txt`
+
 ## Quick start (development)
-- Backend: cd backend && pip install -r requirements.txt && uvicorn api.main:app --reload
+- Backend: cd backend && pip install -r ../requirements.txt && uvicorn api.main:app --reload
 - QKD test: python qkd/bb84_simulator.py
 - AI test: python ai/model_train.py
 - Orbit sim (Java): javac -cp lib/orekit.jar orekit/orbit_simulator.java && java -cp .;lib/orekit.jar OrbitSimulator
