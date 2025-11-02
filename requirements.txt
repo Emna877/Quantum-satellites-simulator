@@ -6,6 +6,8 @@ pandas
 scikit-learn
 matplotlib
 jupyter
+jpype1
+websockets
 # Optional / domain-specific (uncomment if used)
 # qiskit
 # tensorflow

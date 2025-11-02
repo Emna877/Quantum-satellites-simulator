@@ -46,3 +46,4 @@ local_settings.py
 # Ignore generated orbit output
 cubesat.czml
 orbit_positions.csv
+comm_samples.csv

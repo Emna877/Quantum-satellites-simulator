@@ -11,7 +11,7 @@ PROJECT_DIR = Path(r"C:\Users\Emna\Documents\QuantumSatellites").resolve()
 DATA_DIR = PROJECT_DIR / "orekit-data"   # must be unzipped orekit-data folder
 OUT_CSV = PROJECT_DIR / "orbit_positions.csv"
 OUT_CZML = PROJECT_DIR / "cubesat.czml"
-PROP_SECONDS = 3600           # propagation duration in seconds (1 hour)
+PROP_SECONDS = 3600 # propagation duration in seconds (1 hour)
 STEP_SECONDS = 30             # sampling step (s)
 # satellite visual properties
 SAT_NAME = "CubeSat-1"
@@ -74,16 +74,19 @@ earth_ellipsoid = Geo(Constants.WGS84_EARTH_EQUATORIAL_RADIUS,
 samples = []
 times_iso = []
 t = 0
+# define epoch_py once
+epoch_py = datetime.datetime(2025, 10, 29, 0, 0, 0)  # match epoch above
 while t <= PROP_SECONDS:
     date = epoch.shiftedBy(t)
     # inertial frame positions
     pv = prop.getPVCoordinates(date, FramesFactory.getGCRF())
     pos = pv.getPosition()
-    x = float(pos.getX()); y = float(pos.getY()); z = float(pos.getZ())
     # convert to ITRF & geodetic
     itrf = FramesFactory.getITRF(IERSConventions.IERS_2010, True)
     transform = FramesFactory.getGCRF().getTransformTo(itrf, date)
     itrf_pos = transform.transformPosition(pos)
+    # use ITRF (ECEF) coordinates for CSV and CZML so Cesium can render correctly
+    x = float(itrf_pos.getX()); y = float(itrf_pos.getY()); z = float(itrf_pos.getZ())
     try:
         geo = earth_ellipsoid.transform(itrf_pos, itrf, date)
     except TypeError:
@@ -92,10 +95,7 @@ while t <= PROP_SECONDS:
     lon = float(geo.getLongitude() * 180.0 / math.pi)
     alt_m = float(geo.getAltitude())
     samples.append((t, x, y, z, lat, lon, alt_m))
-    # for CZML we use absolute ISO times and cartesian ECEF positions (Cesium can ingest ECEF xyz as 'cartesian')
-    # compute ISO string for this sample
-    # Convert AbsoluteDate to Python datetime: use ISO string directly from epoch + t
-    epoch_py = datetime.datetime(2025, 10, 29, 0, 0, 0)  # match epoch above
+    # for CZML we use absolute ISO times and cartesian ECEF positions
     sample_time = epoch_py + datetime.timedelta(seconds=int(t))
     times_iso.append((sample_time, (x, y, z)))
     t += STEP_SECONDS
@@ -134,9 +134,9 @@ sat_packet = {
     "availability": "{}".format(iso(epoch_py)) + "/" + iso((epoch_py + datetime.timedelta(seconds=PROP_SECONDS))),
     "position": {
         "epoch": iso(epoch_py),
-        # Cesium supports 'cartesian' with numeric seconds since epoch or with time-tagged samples using 'intervals' — for simplicity we provide samples as [time, x,y,z].
-        # Some Cesium loaders accept time tagged as ISO strings interleaved with coordinates; if not, we can convert to seconds from epoch.
-        "cartesian": []
+        "cartesian": [],
+        # Explicitly state FIXED reference frame (ECEF) so Cesium interprets samples correctly
+        "referenceFrame": "FIXED"
     },
     "point": {"pixelSize": 10, "color": {"rgba": [255, 0, 0, 255]}},
     "label": {
@@ -147,7 +147,7 @@ sat_packet = {
         "outlineWidth": 2,
         "pixelOffset": [0, -30]
     },
-    # make the path red using CZML solidColor material
+    
     "path": {
         "show": True,
         "leadTime": 0,
@@ -158,13 +158,10 @@ sat_packet = {
                 "color": {"rgba": [255, 0, 0, 255]}
             }
         }
-    }
+    },  
 }
 
 # Convert position_array into numeric seconds from epoch (safer)
-# Use secondsFromEpoch + coordinates as numbers
-from dateutil import parser as dateparser  # ensure python-dateutil is installed in venv
-# convert epoch to datetime then seconds
 epoch_dt = epoch_py
 cartesian_samples = []
 for (dt, (x, y, z)) in times_iso:
