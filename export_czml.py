@@ -139,7 +139,26 @@ sat_packet = {
         "cartesian": []
     },
     "point": {"pixelSize": 10, "color": {"rgba": [255, 0, 0, 255]}},
-    "path": {"show": True, "leadTime": 0, "trailTime": PROP_SECONDS, "width": 2}
+    "label": {
+        "text": SAT_NAME,
+        "font": "12pt Helvetica, Arial, sans-serif",
+        "fillColor": {"rgba": [255, 255, 255, 255]},
+        "outlineColor": {"rgba": [0, 0, 0, 200]},
+        "outlineWidth": 2,
+        "pixelOffset": [0, -30]
+    },
+    # make the path red using CZML solidColor material
+    "path": {
+        "show": True,
+        "leadTime": 0,
+        "trailTime": PROP_SECONDS,
+        "width": 2,
+        "material": {
+            "solidColor": {
+                "color": {"rgba": [255, 0, 0, 255]}
+            }
+        }
+    }
 }
 
 # Convert position_array into numeric seconds from epoch (safer)
@@ -165,4 +184,3 @@ print("CZML written:", OUT_CZML)
 # 9) shutdown
 if jpype.isJVMStarted():
     jpype.shutdownJVM()
-

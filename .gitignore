@@ -43,4 +43,6 @@ target/
 
 # local settings
 local_settings.py
-# ...add project-specific ignores as needed...
+# Ignore generated orbit output
+cubesat.czml
+orbit_positions.csv

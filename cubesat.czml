@@ -508,11 +508,48 @@
         ]
       }
     },
+    "label": {
+      "text": "CubeSat-1",
+      "font": "12pt Helvetica, Arial, sans-serif",
+      "fillColor": {
+        "rgba": [
+          255,
+          255,
+          255,
+          255
+        ]
+      },
+      "outlineColor": {
+        "rgba": [
+          0,
+          0,
+          0,
+          200
+        ]
+      },
+      "outlineWidth": 2,
+      "pixelOffset": [
+        0,
+        -30
+      ]
+    },
     "path": {
       "show": true,
       "leadTime": 0,
       "trailTime": 3600,
-      "width": 2
+      "width": 2,
+      "material": {
+        "solidColor": {
+          "color": {
+            "rgba": [
+              255,
+              0,
+              0,
+              255
+            ]
+          }
+        }
+      }
     }
   }
 ]
