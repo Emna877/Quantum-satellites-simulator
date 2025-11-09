@@ -1,0 +1,252 @@
+"""
+Simulation Engine - Main orchestration loop for real-time satellite simulation.
+
+This module coordinates all simulation components:
+- Time management via SimulationClock
+- Orbital propagation via OrekitPropagator  
+- Event generation and application
+- Subsystem updates
+- Data logging
+- Real-time streaming
+"""
+
+import asyncio
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+import sys
+
+from .state import SatelliteState
+from .propagator import OrekitPropagator, initialize_state_from_propagator, update_state_from_propagator
+from .clock import SimulationClock
+
+
+class SimulationEngine:
+    """
+    Main simulation engine that orchestrates all components.
+    """
+    
+    def __init__(self, config: dict):
+        """
+        Initialize simulation engine.
+        
+        Args:
+            config: Configuration dictionary with simulation parameters
+        """
+        self.config = config
+        
+        # Core components (will be initialized in setup())
+        self.clock: Optional[SimulationClock] = None
+        self.propagator: Optional[OrekitPropagator] = None
+        self.state: Optional[SatelliteState] = None
+        
+        # Placeholder for future components
+        self.event_manager = None
+        self.subsystem_models = None
+        self.logger = None
+        self.streamer = None
+        
+        self.running = False
+        self.setup_complete = False
+    
+    def setup(self):
+        """
+        Initialize all simulation components.
+        """
+        print("=" * 60)
+        print("SIMULATION ENGINE SETUP")
+        print("=" * 60)
+        
+        # 1. Initialize Orekit propagator
+        print("\n[1/4] Initializing Orekit propagator...")
+        jvm_path = self.config.get("jvm_path")
+        orekit_data_path = Path(self.config.get("orekit_data_path"))
+        
+        if not jvm_path:
+            raise ValueError("jvm_path not specified in config")
+        if not orekit_data_path.exists():
+            raise ValueError(f"orekit_data_path does not exist: {orekit_data_path}")
+        
+        self.propagator = OrekitPropagator(jvm_path, orekit_data_path)
+        
+        # Create orbit from Keplerian elements
+        orbit_config = self.config.get("orbit", {})
+        start_time_str = self.config.get("start_time", datetime.utcnow().isoformat())
+        # Handle 'Z' suffix for UTC timezone
+        if start_time_str.endswith('Z'):
+            start_time_str = start_time_str[:-1] + '+00:00'
+        start_time = datetime.fromisoformat(start_time_str)
+        
+        self.propagator.create_propagator_from_keplerian(
+            epoch=start_time,
+            semi_major_axis=orbit_config.get("semi_major_axis", 6378137 + 700e3),  # 700 km altitude
+            eccentricity=orbit_config.get("eccentricity", 0.0),
+            inclination_deg=orbit_config.get("inclination_deg", 98.0),
+            raan_deg=orbit_config.get("raan_deg", 0.0),
+            arg_perigee_deg=orbit_config.get("arg_perigee_deg", 0.0),
+            mean_anomaly_deg=orbit_config.get("mean_anomaly_deg", 0.0),
+        )
+        
+        # 2. Initialize simulation clock
+        print("\n[2/4] Initializing simulation clock...")
+        time_step = self.config.get("time_step", 1.0)
+        speed_multiplier = self.config.get("speed_multiplier", 1.0)
+        
+        self.clock = SimulationClock(
+            start_time=start_time,
+            speed_multiplier=speed_multiplier,
+            time_step=time_step
+        )
+        print(f"  Clock: time_step={time_step}s, speed={speed_multiplier}x")
+        
+        # 3. Initialize satellite state
+        print("\n[3/4] Initializing satellite state...")
+        self.state = initialize_state_from_propagator(self.propagator, start_time)
+        print(f"  Initial altitude: {self.state.altitude/1e3:.1f} km")
+        print(f"  Initial position: [{self.state.position[0]/1e3:.1f}, {self.state.position[1]/1e3:.1f}, {self.state.position[2]/1e3:.1f}] km")
+        
+        # 4. Initialize other components (placeholders for now)
+        print("\n[4/4] Initializing subsystems...")
+        print("  [TODO] Event manager")
+        print("  [TODO] Subsystem models")
+        print("  [TODO] Telemetry logger")
+        print("  [TODO] CZML streamer")
+        
+        self.setup_complete = True
+        print("\n" + "=" * 60)
+        print("SETUP COMPLETE - Ready to run simulation")
+        print("=" * 60 + "\n")
+    
+    async def run(self):
+        """
+        Main simulation loop - runs continuously until stopped.
+        """
+        if not self.setup_complete:
+            raise RuntimeError("Must call setup() before run()")
+        
+        self.running = True
+        elapsed_seconds = 0.0
+        
+        print(f"[Engine] Starting simulation at {self.clock.current_time.isoformat()}")
+        print(f"[Engine] Press Ctrl+C to stop\n")
+        
+        try:
+            while self.running:
+                # Phase 1: Generate and apply events (placeholder)
+                # if self.event_manager:
+                #     events = self.event_manager.generate_events(self.state, self.clock.current_time)
+                #     self.state = self.event_manager.apply_events(self.state, events)
+                
+                # Phase 2: Propagate orbital dynamics
+                elapsed_seconds += self.clock.time_step
+                self.state = update_state_from_propagator(
+                    self.state,
+                    self.propagator,
+                    elapsed_seconds
+                )
+                self.state.timestamp = self.clock.current_time
+                
+                # Phase 3: Update subsystems (placeholder)
+                # if self.subsystem_models:
+                #     self.state = self.subsystem_models.update(self.state, self.clock.time_step)
+                
+                # Phase 4: Validate state
+                try:
+                    self.state.validate()
+                except ValueError as e:
+                    print(f"[Engine] WARNING: State validation failed: {e}")
+                
+                # Phase 5: Log telemetry (placeholder)
+                # if self.logger:
+                #     self.logger.log(self.state)
+                
+                # Phase 6: Stream data (placeholder)
+                # if self.streamer:
+                #     await self.streamer.send(self.state)
+                
+                # Print periodic status
+                if self.clock.tick_count % 60 == 0:  # Every 60 seconds
+                    self._print_status()
+                
+                # Phase 7: Advance clock and sleep
+                self.clock.tick()
+                lag = self.clock.calculate_lag()
+                
+                if abs(lag) > 5.0:  # Warning if lag exceeds 5 seconds
+                    print(f"[Engine] WARNING: High lag detected: {lag:.2f}s")
+                
+                await self.clock.sleep_until_next_tick()
+        
+        except KeyboardInterrupt:
+            print("\n[Engine] Simulation interrupted by user")
+        except Exception as e:
+            print(f"\n[Engine] ERROR: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            self.running = False
+            await self.shutdown()
+    
+    def _print_status(self):
+        """Print current simulation status."""
+        stats = self.clock.get_statistics()
+        print(f"\n[Status] Sim Time: {self.clock.current_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"  Ticks: {stats['tick_count']} | "
+              f"Altitude: {self.state.altitude/1e3:.1f} km | "
+              f"Battery: {self.state.battery_percent:.1f}% | "
+              f"Temp: {self.state.internal_temp:.1f}°C")
+        print(f"  Speed: {stats['speed_multiplier']:.2f}x | "
+              f"Lag: {stats['current_lag_seconds']:.3f}s | "
+              f"Avg Lag: {stats['average_lag_seconds']:.3f}s")
+    
+    async def shutdown(self):
+        """Clean shutdown of all components."""
+        print("\n[Engine] Shutting down...")
+        
+        if self.propagator:
+            self.propagator.shutdown()
+        
+        if self.clock:
+            final_stats = self.clock.get_statistics()
+            print(f"\n[Engine] Final Statistics:")
+            print(f"  Total simulation time: {final_stats['elapsed_sim_seconds']:.1f}s")
+            print(f"  Total wall time: {final_stats['elapsed_wall_seconds']:.1f}s")
+            print(f"  Total ticks: {final_stats['tick_count']}")
+            print(f"  Max lag: {final_stats['max_lag_seconds']:.3f}s")
+        
+        print("[Engine] Shutdown complete")
+
+
+async def main():
+    """
+    Example main function to run simulation.
+    """
+    # Example configuration
+    config = {
+        # Orekit setup
+        "jvm_path": r"C:\Program Files\Java\jdk-25\bin\server\jvm.dll",
+        "orekit_data_path": r"D:\programming\python\Quantum-satellites-simulator\orekit-data\orekit-data-main",
+        
+        # Simulation timing
+        "start_time": "2025-11-09T12:00:00Z",
+        "time_step": 1.0,  # 1 second per tick
+        "speed_multiplier": 1.0,  # Real-time
+        
+        # Orbital elements
+        "orbit": {
+            "semi_major_axis": 6378137 + 700e3,  # 700 km altitude
+            "eccentricity": 0.0,
+            "inclination_deg": 98.0,
+            "raan_deg": 10.0,
+            "arg_perigee_deg": 0.0,
+            "mean_anomaly_deg": 0.0,
+        }
+    }
+    
+    engine = SimulationEngine(config)
+    engine.setup()
+    await engine.run()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -8,8 +8,8 @@ import statistics
 from math import log10
 
 # ---------------- CONFIG ----------------
-JVM_PATH = r"C:\Program Files\Java\jdk-25\bin\server\jvm.dll"
-PROJECT_DIR = Path(r"C:\Users\Emna\Documents\QuantumSatellites").resolve()
+JVM_PATH = r"C:\Program Files\Java\jdk-23\bin\server\jvm.dll"
+PROJECT_DIR = Path(r"D:\programming\python\Quantum-satellites-simulator").resolve()
 DATA_DIR = PROJECT_DIR / "orekit-data"
 PROP_SECONDS = 2 * 3600        # propagate for 2 hours (example)
 STEP_SECONDS = 30              # sample every 30s

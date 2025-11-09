@@ -12,8 +12,8 @@ import uvicorn
 
 # Simple real-time streamer using Orekit -> WebSocket -> Cesium client
 # Config
-JVM_PATH = r"C:\Program Files\Java\jdk-25\bin\server\jvm.dll"
-PROJECT_DIR = Path(r"C:\Users\Emna\Documents\QuantumSatellites").resolve()
+JVM_PATH = r"C:\Program Files\Java\jdk-23\bin\server\jvm.dll"
+PROJECT_DIR = Path(r"D:\programming\python\Quantum-satellites-simulator\.venv_orekit").resolve()
 DATA_DIR = PROJECT_DIR / "orekit-data"
 PROP_SECONDS = 2 * 3600
 STEP_SECONDS = 5  # smaller step for smoother streaming
