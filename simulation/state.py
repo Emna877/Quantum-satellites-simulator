@@ -181,3 +181,161 @@ class SatelliteState:
             last_command_time=self.last_command_time,
             last_command_type=self.last_command_type,
         )
+    
+    # Compatibility properties for event system (aliased attributes)
+    @property
+    def radiation_dose_rate(self) -> float:
+        """Alias for radiation_dose (μSv/h)."""
+        return self.radiation_dose
+    
+    @radiation_dose_rate.setter
+    def radiation_dose_rate(self, value: float):
+        self.radiation_dose = value
+    
+    @property
+    def signal_strength_db(self) -> float:
+        """Alias for signal_strength (dBm)."""
+        return self.signal_strength
+    
+    @signal_strength_db.setter
+    def signal_strength_db(self, value: float):
+        self.signal_strength = value
+    
+    @property
+    def signal_strength_dbm(self) -> float:
+        """Alias for signal_strength (dBm)."""
+        return self.signal_strength
+    
+    @signal_strength_dbm.setter
+    def signal_strength_dbm(self, value: float):
+        self.signal_strength = value
+    
+    @property
+    def battery_charge_pct(self) -> float:
+        """Alias for battery_percent."""
+        return self.battery_percent
+    
+    @battery_charge_pct.setter
+    def battery_charge_pct(self, value: float):
+        self.battery_percent = value
+    
+    @property
+    def solar_panel_power_w(self) -> float:
+        """Solar power in watts (derived from current * voltage)."""
+        return self.solar_current * 14.0  # Assume 14V nominal
+    
+    @solar_panel_power_w.setter
+    def solar_panel_power_w(self, value: float):
+        self.solar_current = value / 14.0
+    
+    @property
+    def solar_panel_current(self) -> float:
+        """Alias for solar_current."""
+        return self.solar_current
+    
+    @solar_panel_current.setter
+    def solar_panel_current(self, value: float):
+        self.solar_current = value
+    
+    @property
+    def in_sunlight(self) -> bool:
+        """Inverse of in_eclipse."""
+        return not self.in_eclipse
+    
+    @in_sunlight.setter
+    def in_sunlight(self, value: bool):
+        self.in_eclipse = not value
+    
+    @property
+    def angular_velocity_rad_s(self) -> np.ndarray:
+        """Alias for angular_velocity."""
+        return self.angular_velocity
+    
+    @angular_velocity_rad_s.setter
+    def angular_velocity_rad_s(self, value: np.ndarray):
+        self.angular_velocity = value
+    
+    @property
+    def component_health_pct(self) -> float:
+        """Aggregate component health as percentage."""
+        operational_count = sum(1 for status in self.component_health.values() if status == "OPERATIONAL")
+        return (operational_count / len(self.component_health)) * 100.0
+    
+    @component_health_pct.setter
+    def component_health_pct(self, value: float):
+        """Set aggregate health - degrades components proportionally."""
+        if value < self.component_health_pct:
+            # Degrading - randomly mark components as DEGRADED
+            target_operational = int((value / 100.0) * len(self.component_health))
+            components = list(self.component_health.keys())
+            operational_components = [c for c in components if self.component_health[c] == "OPERATIONAL"]
+            
+            import random
+            to_degrade = len(operational_components) - target_operational
+            if to_degrade > 0:
+                components_to_degrade = random.sample(operational_components, min(to_degrade, len(operational_components)))
+                for component in components_to_degrade:
+                    self.component_health[component] = "DEGRADED"
+    
+    @property
+    def component_health_percent(self) -> float:
+        """Alias for component_health_pct."""
+        return self.component_health_pct
+    
+    @component_health_percent.setter
+    def component_health_percent(self, value: float):
+        self.component_health_pct = value
+    
+    @property
+    def internal_temp_c(self) -> float:
+        """Alias for internal_temp."""
+        return self.internal_temp
+    
+    @internal_temp_c.setter
+    def internal_temp_c(self, value: float):
+        self.internal_temp = value
+    
+    @property
+    def navigation_accuracy_meters(self) -> float:
+        """Navigation accuracy derived from error counters."""
+        # Base accuracy is 10m, increases with errors
+        return 10.0 + self.error_counters.get("attitude_control_errors", 0) * 5.0
+    
+    @navigation_accuracy_meters.setter
+    def navigation_accuracy_meters(self, value: float):
+        """Set navigation accuracy by updating error counters."""
+        if value > 10.0:
+            self.error_counters["attitude_control_errors"] = int((value - 10.0) / 5.0)
+        else:
+            self.error_counters["attitude_control_errors"] = 0
+    
+    @property
+    def data_rate_kbps(self) -> float:
+        """Average of uplink and downlink rates."""
+        return (self.uplink_rate + self.downlink_rate) / 2.0
+    
+    @data_rate_kbps.setter
+    def data_rate_kbps(self, value: float):
+        """Set both uplink and downlink to the same rate."""
+        self.uplink_rate = value
+        self.downlink_rate = value
+    
+    @property
+    def data_rate_mbps(self) -> float:
+        """Data rate in Mbps (converted from kbps)."""
+        return self.data_rate_kbps / 1000.0
+    
+    @data_rate_mbps.setter
+    def data_rate_mbps(self, value: float):
+        """Set data rate in Mbps."""
+        self.data_rate_kbps = value * 1000.0
+    
+    @property
+    def packet_loss_pct(self) -> float:
+        """Alias for packet_loss."""
+        return self.packet_loss
+    
+    @packet_loss_pct.setter
+    def packet_loss_pct(self, value: float):
+        """Set packet loss percentage."""
+        self.packet_loss = value
