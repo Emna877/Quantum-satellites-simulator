@@ -19,6 +19,7 @@ import sys
 from .state import SatelliteState
 from .propagator import OrekitPropagator, initialize_state_from_propagator, update_state_from_propagator
 from .clock import SimulationClock
+from events.manager import EventManager, EventConfig
 
 
 class SimulationEngine:
@@ -105,9 +106,21 @@ class SimulationEngine:
         print(f"  Initial altitude: {self.state.altitude/1e3:.1f} km")
         print(f"  Initial position: [{self.state.position[0]/1e3:.1f}, {self.state.position[1]/1e3:.1f}, {self.state.position[2]/1e3:.1f}] km")
         
-        # 4. Initialize other components (placeholders for now)
+        # 4. Initialize other components
         print("\n[4/4] Initializing subsystems...")
-        print("  [TODO] Event manager")
+        
+        # Initialize event manager with default or custom config
+        event_config = self.config.get("event_config", EventConfig())
+        if isinstance(event_config, dict):
+            # Convert dict to EventConfig if needed
+            event_config = EventConfig(**event_config)
+        self.event_manager = EventManager(config=event_config)
+        
+        # Schedule initial eclipse events
+        orbit_period = 2 * 3.14159 * (orbit_config.get("semi_major_axis", 6378137 + 700e3) ** 1.5) / (3.986004418e14 ** 0.5) / 60.0  # minutes
+        self.event_manager.schedule_eclipse_events(start_time, orbit_period)
+        print(f"  ✓ Event manager initialized (orbit period: {orbit_period:.1f} min)")
+        
         print("  [TODO] Subsystem models")
         print("  [TODO] Telemetry logger")
         print("  [TODO] CZML streamer")
@@ -132,10 +145,15 @@ class SimulationEngine:
         
         try:
             while self.running:
-                # Phase 1: Generate and apply events (placeholder)
-                # if self.event_manager:
-                #     events = self.event_manager.generate_events(self.state, self.clock.current_time)
-                #     self.state = self.event_manager.apply_events(self.state, events)
+                # Phase 1: Generate and apply events
+                if self.event_manager:
+                    events_occurred = self.event_manager.update(self.clock.current_time, self.state)
+                    
+                    # Log any new events that occurred
+                    for event in events_occurred:
+                        print(f"[Event] {event.event_type.value.upper()} "
+                              f"(Severity: {event.severity.name}, "
+                              f"Type: {'ATTACK' if event.is_attack else 'ENVIRONMENTAL'})")
                 
                 # Phase 2: Propagate orbital dynamics
                 elapsed_seconds += self.clock.time_step
@@ -190,6 +208,8 @@ class SimulationEngine:
     def _print_status(self):
         """Print current simulation status."""
         stats = self.clock.get_statistics()
+        event_stats = self.event_manager.get_statistics() if self.event_manager else {}
+        
         print(f"\n[Status] Sim Time: {self.clock.current_time.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"  Ticks: {stats['tick_count']} | "
               f"Altitude: {self.state.altitude/1e3:.1f} km | "
@@ -198,6 +218,12 @@ class SimulationEngine:
         print(f"  Speed: {stats['speed_multiplier']:.2f}x | "
               f"Lag: {stats['current_lag_seconds']:.3f}s | "
               f"Avg Lag: {stats['average_lag_seconds']:.3f}s")
+        
+        if event_stats:
+            print(f"  Events: {event_stats['total_events']} total "
+                  f"({event_stats['environmental_events']} environmental, "
+                  f"{event_stats['attack_events']} attacks) | "
+                  f"Active: {event_stats['active_events_count']}")
     
     async def shutdown(self):
         """Clean shutdown of all components."""
@@ -213,6 +239,14 @@ class SimulationEngine:
             print(f"  Total wall time: {final_stats['elapsed_wall_seconds']:.1f}s")
             print(f"  Total ticks: {final_stats['tick_count']}")
             print(f"  Max lag: {final_stats['max_lag_seconds']:.3f}s")
+        
+        if self.event_manager:
+            event_stats = self.event_manager.get_statistics()
+            print(f"\n[Event System] Statistics:")
+            print(f"  Total events: {event_stats['total_events']}")
+            print(f"  Environmental: {event_stats['environmental_events']}")
+            print(f"  Attacks: {event_stats['attack_events']}")
+            print(f"  By Severity: {dict(event_stats['by_severity'])}")
         
         print("[Engine] Shutdown complete")
 
