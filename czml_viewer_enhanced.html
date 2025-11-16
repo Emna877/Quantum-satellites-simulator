@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Quantum Satellite Simulator - Enhanced CZML Viewer</title>
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.109/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.109/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <style>
+        html, body, #cesiumContainer {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #000;
+        }
+        
+        #controlPanel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-width: 350px;
+            max-height: 90vh;
+            overflow-y: auto;
+            z-index: 1000;
+            border: 2px solid #00ffff;
+        }
+        
+        #controlPanel h3 {
+            margin: 0 0 10px 0;
+            color: #00ffff;
+            font-size: 16px;
+            text-align: center;
+            border-bottom: 1px solid #00ffff;
+            padding-bottom: 5px;
+        }
+        
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            padding: 5px;
+            background: rgba(0, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+        
+        .stat-label {
+            color: #aaa;
+            font-weight: bold;
+        }
+        
+        .stat-value {
+            color: #00ff00;
+            font-family: monospace;
+        }
+        
+        .event-item {
+            background: rgba(255, 0, 0, 0.2);
+            border-left: 3px solid #ff0000;
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 3px;
+            font-size: 11px;
+        }
+        
+        .event-environmental {
+            background: rgba(0, 150, 255, 0.2);
+            border-left-color: #0096ff;
+        }
+        
+        .event-time {
+            color: #888;
+            font-size: 10px;
+        }
+        
+        .event-type {
+            font-weight: bold;
+            color: #ffff00;
+        }
+        
+        .event-severity-LOW { color: #00ff00; }
+        .event-severity-MEDIUM { color: #ffaa00; }
+        .event-severity-HIGH { color: #ff6600; }
+        .event-severity-CRITICAL { color: #ff0000; }
+        
+        #eventLog {
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 5px;
+            margin: 10px 0;
+        }
+        
+        button {
+            flex: 1;
+            padding: 8px;
+            background: #00ffff;
+            border: none;
+            border-radius: 4px;
+            color: #000;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 11px;
+        }
+        
+        button:hover {
+            background: #00cccc;
+        }
+        
+        button:active {
+            background: #008888;
+        }
+        
+        #fileInput {
+            display: none;
+        }
+        
+        .legend {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #333;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+            font-size: 11px;
+        }
+        
+        .legend-icon {
+            margin-right: 8px;
+            font-size: 14px;
+        }
+        
+        #loadingOverlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: #00ffff;
+            padding: 30px;
+            border-radius: 10px;
+            border: 2px solid #00ffff;
+            font-family: monospace;
+            font-size: 18px;
+            text-align: center;
+            z-index: 2000;
+        }
+        
+        .spinner {
+            border: 4px solid #333;
+            border-top: 4px solid #00ffff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="cesiumContainer"></div>
+    
+    <div id="loadingOverlay">
+        <div>Loading Quantum Satellite Simulation...</div>
+        <div class="spinner"></div>
+    </div>
+    
+    <div id="controlPanel">
+        <h3>🛰️ SATELLITE MONITOR</h3>
+        
+        <div class="button-group">
+            <button onclick="document.getElementById('fileInput').click()">📁 Load CZML</button>
+            <button onclick="togglePlay()">⏯️ Play/Pause</button>
+            <button onclick="resetView()">🏠 Reset View</button>
+        </div>
+        <input type="file" id="fileInput" accept=".czml,.json" onchange="loadCZML(event)">
+        
+        <div class="stat-row">
+            <span class="stat-label">Time:</span>
+            <span class="stat-value" id="simTime">--:--:--</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Speed:</span>
+            <span class="stat-value" id="simSpeed">1x</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Altitude:</span>
+            <span class="stat-value" id="altitude">--- km</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Active Events:</span>
+            <span class="stat-value" id="activeEvents">0</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Total Events:</span>
+            <span class="stat-value" id="totalEvents">0</span>
+        </div>
+        
+        <h3 style="margin-top: 15px;">📊 EVENT LOG</h3>
+        <div id="eventLog">
+            <div style="color: #666; text-align: center; padding: 20px;">
+                No events detected yet
+            </div>
+        </div>
+        
+        <div class="legend">
+            <div style="color: #00ffff; font-size: 12px; font-weight: bold; margin-bottom: 8px;">Legend:</div>
+            <div class="legend-item">
+                <span class="legend-icon">☀️</span>
+                <span>Solar Flare (orange glow)</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-icon">💥</span>
+                <span>Micrometeoroid Impact</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-icon">⚠️</span>
+                <span>GPS Spoofing (red cone)</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-icon">🔴</span>
+                <span>Laser Attack (beam)</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-icon">📡</span>
+                <span>RF Jamming (ellipsoid)</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-icon">🌑</span>
+                <span>Eclipse Entry/Exit</span>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Initialize Cesium Viewer
+        Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJlYWE1OWUxNy1mMWZiLTQzYjYtYTQ0OS1kMWFjYmFkNjc5YzciLCJpZCI6NTc3MzMsImlhdCI6MTYyNzg0NTE4Mn0.XcKpgANiY19MC4bdFUXMVEBToBmqS8kuYpUlxJHYZxk';
+        
+        const viewer = new Cesium.Viewer('cesiumContainer', {
+            animation: true,
+            timeline: true,
+            baseLayerPicker: true,
+            geocoder: false,
+            homeButton: false,
+            sceneModePicker: true,
+            navigationHelpButton: false,
+            shouldAnimate: true,
+            skyBox: new Cesium.SkyBox({
+                sources: {
+                    positiveX: 'https://cesium.com/downloads/cesiumjs/releases/1.109/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_px.jpg',
+                    negativeX: 'https://cesium.com/downloads/cesiumjs/releases/1.109/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_mx.jpg',
+                    positiveY: 'https://cesium.com/downloads/cesiumjs/releases/1.109/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_py.jpg',
+                    negativeY: 'https://cesium.com/downloads/cesiumjs/releases/1.109/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_my.jpg',
+                    positiveZ: 'https://cesium.com/downloads/cesiumjs/releases/1.109/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_pz.jpg',
+                    negativeZ: 'https://cesium.com/downloads/cesiumjs/releases/1.109/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_mz.jpg'
+                }
+            }),
+            skyAtmosphere: new Cesium.SkyAtmosphere()
+        });
+        
+        viewer.scene.globe.enableLighting = true;
+        viewer.clock.shouldAnimate = true;
+        
+        let dataSource = null;
+        let eventEntities = [];
+        
+        // Hide loading overlay after Cesium loads
+        setTimeout(() => {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }, 2000);
+        
+        // Try to load default CZML file
+        setTimeout(() => {
+            loadDefaultCZML();
+        }, 2500);
+        
+        function loadDefaultCZML() {
+            const defaultFile = 'cubesat_with_events.czml';
+            fetch(defaultFile)
+                .then(response => response.json())
+                .then(data => {
+                    processCZMLData(data);
+                    console.log('Loaded default CZML file');
+                })
+                .catch(err => {
+                    console.log('No default CZML file found, waiting for user upload');
+                });
+        }
+        
+        function loadCZML(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const czmlData = JSON.parse(e.target.result);
+                    processCZMLData(czmlData);
+                } catch (error) {
+                    alert('Error parsing CZML file: ' + error.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+        
+        function processCZMLData(czmlData) {
+            // Clear existing data
+            if (dataSource) {
+                viewer.dataSources.remove(dataSource);
+            }
+            eventEntities = [];
+            
+            // Load CZML
+            const newDataSource = new Cesium.CzmlDataSource();
+            newDataSource.load(czmlData).then(() => {
+                dataSource = newDataSource;
+                viewer.dataSources.add(dataSource);
+                
+                // Extract events from CZML
+                const entities = dataSource.entities.values;
+                entities.forEach(entity => {
+                    if (entity.id.includes('solar-flare') || 
+                        entity.id.includes('micrometeoroid') ||
+                        entity.id.includes('gps-spoof') ||
+                        entity.id.includes('laser-beam') ||
+                        entity.id.includes('jamming') ||
+                        entity.id.includes('eclipse') ||
+                        entity.id.includes('attack') ||
+                        entity.id.includes('event-')) {
+                        eventEntities.push(entity);
+                    }
+                });
+                
+                updateEventLog();
+                
+                // Track satellite entity
+                const satellite = entities.find(e => e.id === 'satellite');
+                if (satellite) {
+                    viewer.trackedEntity = satellite;
+                    setTimeout(() => {
+                        viewer.trackedEntity = undefined;
+                        viewer.zoomTo(dataSource);
+                    }, 3000);
+                }
+                
+                console.log(`Loaded ${entities.length} entities, ${eventEntities.length} events`);
+            });
+        }
+        
+        function updateEventLog() {
+            const logDiv = document.getElementById('eventLog');
+            document.getElementById('totalEvents').textContent = eventEntities.length;
+            
+            if (eventEntities.length === 0) {
+                logDiv.innerHTML = '<div style="color: #666; text-align: center; padding: 20px;">No events detected</div>';
+                return;
+            }
+            
+            let html = '';
+            eventEntities.forEach(entity => {
+                const isAttack = entity.id.includes('spoof') || entity.id.includes('laser') || 
+                                entity.id.includes('jamming') || entity.id.includes('attack') ||
+                                entity.id.includes('injection') || entity.id.includes('drain');
+                
+                const className = isAttack ? 'event-item' : 'event-item event-environmental';
+                
+                // Extract event type and severity from name
+                const name = entity.name || entity.id;
+                const severityMatch = name.match(/(LOW|MEDIUM|HIGH|CRITICAL)/);
+                const severity = severityMatch ? severityMatch[1] : 'UNKNOWN';
+                
+                html += `
+                    <div class="${className}">
+                        <div class="event-type">${name}</div>
+                        <div>
+                            <span class="event-severity-${severity}">⬤ ${severity}</span>
+                            ${isAttack ? ' <span style="color:#ff0000">⚠️ ATTACK</span>' : ' <span style="color:#0096ff">🌍 Environmental</span>'}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            logDiv.innerHTML = html;
+        }
+        
+        // Update telemetry
+        viewer.clock.onTick.addEventListener(function(clock) {
+            const currentTime = Cesium.JulianDate.toDate(clock.currentTime);
+            document.getElementById('simTime').textContent = currentTime.toTimeString().split(' ')[0];
+            document.getElementById('simSpeed').textContent = clock.multiplier.toFixed(1) + 'x';
+            
+            // Update altitude if satellite is tracked
+            if (dataSource) {
+                const satellite = dataSource.entities.getById('satellite');
+                if (satellite && satellite.position) {
+                    try {
+                        const position = satellite.position.getValue(clock.currentTime);
+                        if (position) {
+                            const cartographic = Cesium.Cartographic.fromCartesian(position);
+                            const altitude = (cartographic.height / 1000).toFixed(1);
+                            document.getElementById('altitude').textContent = altitude + ' km';
+                        }
+                    } catch (e) {
+                        // Position not available at this time
+                    }
+                }
+            }
+            
+            // Count active events
+            let activeCount = 0;
+            eventEntities.forEach(entity => {
+                if (entity.isAvailable && entity.isAvailable(clock.currentTime)) {
+                    activeCount++;
+                }
+            });
+            document.getElementById('activeEvents').textContent = activeCount;
+        });
+        
+        function togglePlay() {
+            viewer.clock.shouldAnimate = !viewer.clock.shouldAnimate;
+        }
+        
+        function resetView() {
+            if (dataSource) {
+                viewer.zoomTo(dataSource);
+            }
+        }
+        
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                togglePlay();
+            } else if (e.code === 'KeyR') {
+                resetView();
+            } else if (e.code === 'ArrowUp') {
+                viewer.clock.multiplier = Math.min(viewer.clock.multiplier * 2, 100);
+            } else if (e.code === 'ArrowDown') {
+                viewer.clock.multiplier = Math.max(viewer.clock.multiplier / 2, 0.1);
+            }
+        });
+        
+        console.log('Quantum Satellite Viewer initialized');
+        console.log('Controls: SPACE = play/pause, R = reset view, ↑↓ = speed');
+    </script>
+</body>
+</html>
