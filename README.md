@@ -1,67 +1,156 @@
-# QuantumSatellites Simulator
+# Quantum Satellite Simulator
 
-This repository contains a CubeSat orbit simulator with classical and QKD link models and a real-time CesiumJS visualization.
-Files of interest
+A real-time satellite simulation with event system and 3D visualization for quantum key distribution (QKD) satellites.
 
-- `qkd.py` — main script that computes visibility windows, classical link SNR/capacity and a simple QKD model per-sample. Writes `comm_samples.csv`.
-Requirements
+## 🚀 Quick Start
 
-Install dependencies into a virtual environment. On Windows PowerShell:
-```powershell
+### 1. Setup Environment
+
+```bash
+# Create and activate virtual environment
 python -m venv .venv_orekit
-.\.venv_orekit\Scripts\Activate.ps1
-Notes:
-- `orekit` itself is Java-based. You must place the Orekit and Hipparchus JARs in the repository (so the scripts can find them via globbing `*.jar`). The `orekit-data` folder (provided) must be present.
-Run the QKD simulation (batch)
+.venv_orekit\Scripts\Activate.ps1  # Windows PowerShell
 
-```powershell
-& .\.venv_orekit\Scripts\python.exe .\qkd.py
-Start the real-time server and viewer
-
-1. Start the server (this will also start the Orekit JVM and an internal propagator):
-```powershell
-& .\.venv_orekit\Scripts\python.exe .\realtime_server.py
+# Install dependencies
+pip install -r requirements.txt
 ```
-2. Open the viewer in your browser:
 
-- http://localhost:8000/realtime_viewer.html
-- or (if you prefer the static mount) http://localhost:8000/static/realtime_viewer.html
-How it works
+### 2. Configure (Optional)
 
-- `realtime_server.py` computes satellite positions in Earth-fixed ECEF (ITRF) coordinates and broadcasts JSON messages over `/ws` WebSocket:
-Next steps / tips
+Copy `.env.template` to `.env` and customize paths:
+```bash
+copy .env.template .env
+```
 
-- For reproducible runs, set `AUTO_FIND_PASS = False` in `qkd.py` and use deterministic orbital elements/epoch.
-- If you want the server to also stream per-sample classical/QKD metrics, I can refactor `qkd.py` into reusable functions and have `realtime_server.py` call them and stream additional JSON fields (e.g., `qber`, `key_rate`, `snr`, `capacity`).
-- Consider running the server behind a reverse proxy or enabling TLS (wss) for secure remote access.
+### 3. Run Simulation
 
-If you want, I can now:
-- Refactor `qkd.py` to expose functions used by `realtime_server.py` so both use identical model parameters.
-- Add UI controls to `realtime_viewer.html` to show QKD/classical metrics in real time.
-# AI-Quantum-Secured-Satellite-Comms
+```bash
+# Generate CZML with events
+python export_czml_with_events.py
 
-Project that simulates a LEO CubeSat QKD link (BB84) with AI-based anomaly detection and CesiumJS visualization.
+# Start web server
+python -m http.server 8000
 
+# Open browser to: http://localhost:8000/czml_viewer_enhanced.html
+```
 
-## Setup
-See `setup_instructions.sh` for automated environment setup notes.
+## 📊 Features
 
-- A top-level `requirements.txt` is provided for Python dependencies.
-- A top-level `.gitignore` has been added to avoid committing virtual environments, node_modules, editor configs, and build artifacts.
+### Simulation Engine
+- **Orbital Propagation**: Satellite position calculation
+- **Real-time Event System**: 12 event types (6 environmental + 6 attacks)
+- **State Management**: Complete satellite telemetry tracking
+- **Ground Truth Labels**: Attack vs natural event classification
 
-Recommended quick setup:
-- Create and activate a virtual environment: `python -m venv .venv && .\.venv\Scripts\activate` (Windows) or `python3 -m venv .venv && source .venv/bin/activate` (Unix).
-- Install Python deps: `pip install -r requirements.txt`
+### Event Types
 
-## Quick start (development)
-- Backend: cd backend && pip install -r ../requirements.txt && uvicorn api.main:app --reload
-- QKD test: python qkd/bb84_simulator.py
-- AI test: python ai/model_train.py
-- Orbit sim (Java): javac -cp lib/orekit.jar orekit/orbit_simulator.java && java -cp .;lib/orekit.jar OrbitSimulator
-- Frontend: cd frontend && npm install && npm start
+**Environmental (Natural)**
+- ☀️ Solar Flare - Radiation dose increase
+- 💥 Micrometeoroid Impact - Physical damage
+- 🌑 Eclipse Entry/Exit - Power changes
+- 🌪️ Atmospheric Drag - Altitude loss
+- ⚡ Geomagnetic Storm - Navigation errors
 
-## Project structure
-See repository root for folders: `backend/`, `qkd/`, `ai/`, `orekit/`, `frontend/`.
+**Attacks (Adversarial)**
+- ⚠️ GPS Spoofing - False navigation signals
+- 🔴 Laser Dazzle - Optical sensor blinding
+- 📡 RF Jamming - Communication disruption
+- 💉 Command Injection - Unauthorized commands
+- 🔋 Power Drain - Battery depletion
+- 🌡️ Thermal Sabotage - Temperature attacks
 
-## Notes
-This repository scaffold contains minimal "Hello World" skeletons. Replace placeholders with real implementations as needed.
+### 3D Visualization
+- **Cesium-based viewer** with ArcGIS World Imagery
+- **Real-time monitoring** - Telemetry panel with live updates
+- **Event shapes** - 3D visual representations of events
+- **Interactive controls** - Play/pause, speed adjustment, camera controls
+
+## 📁 Project Structure
+
+```
+Quantum-satellites-simulator/
+├── simulation/          # Core simulation engine
+│   ├── engine.py       # Main simulation loop
+│   ├── state.py        # Satellite state management
+│   ├── propagator.py   # Orbital mechanics
+│   └── clock.py        # Time management
+├── events/             # Event system
+│   ├── base.py        # Base event classes
+│   ├── environmental.py # Natural events
+│   ├── attacks.py      # Attack events
+│   └── manager.py      # Event orchestration
+├── export_czml_with_events.py  # CZML generator
+├── czml_viewer_enhanced.html   # 3D visualization
+└── test_phase2_simple.py       # Event system tests
+```
+
+## 🎮 Viewer Controls
+
+### Keyboard Shortcuts
+- **SPACE** - Play/Pause animation
+- **R** - Reset camera to home view
+- **↑** - Increase playback speed (2x)
+- **↓** - Decrease playback speed (0.5x)
+
+### Interface
+- **Control Panel** (left side) - Telemetry and event monitoring
+- **Timeline** (bottom) - Scrub through simulation time
+- **Animation Controls** (bottom left) - Play/pause and speed
+- **Base Layer Picker** (top right) - Change map imagery
+
+## 🧪 Testing
+
+```bash
+# Run event system tests
+python test_phase2_simple.py
+
+# Expected: All 6 tests pass ✅
+```
+
+## 🔧 Configuration (.env)
+
+```bash
+# CZML Output
+CZML_OUTPUT_FILE=cubesat_with_events.czml
+CZML_VIEWER_FILE=czml_viewer_enhanced.html
+
+# Simulation Parameters
+ORBIT_ALTITUDE_KM=460
+ORBIT_INCLINATION_DEG=51.6
+CZML_DEFAULT_DURATION_SECONDS=3600
+
+# Paths
+PROJECT_DIR=D:\programming\python\Quantum-satellites-simulator
+OREKIT_DATA_PATH=D:\programming\python\Quantum-satellites-simulator\orekit-data\orekit-data-main
+```
+
+## 📈 Next Steps: Machine Learning
+
+The event system provides labeled training data for ML:
+- **Feature Engineering**: Time series telemetry → ML features
+- **Model**: LSTM/Transformer for anomaly detection
+- **Training**: Supervised learning with ground truth labels (0=natural, 1=attack)
+- **Inference**: Real-time attack vs natural classification
+
+## 🛠️ Technologies
+
+- **Python 3.10+** - Core language
+- **Orekit** - Orbital mechanics (via JPype)
+- **Cesium** - 3D globe visualization
+- **CZML** - Time-dynamic visualization format
+- **NumPy/SciPy** - Scientific computing
+- **scikit-learn** - ML framework (future)
+
+## 📄 License
+
+MIT License - See LICENSE file for details
+
+## 🤝 Contributing
+
+1. Create feature branch
+2. Make changes with tests
+3. Submit pull request
+
+---
+
+**Status**: ✅ Phase 1 Complete | ✅ Phase 2 Complete | ⏳ Phase 3 ML (Pending)

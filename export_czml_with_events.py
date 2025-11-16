@@ -19,6 +19,11 @@ from datetime import timedelta
 from typing import List, Dict, Any
 import random
 import sys
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Import event system
 sys.path.insert(0, str(Path(__file__).parent))
@@ -572,14 +577,16 @@ def main():
     print(f"  Created CZML with {len(czml)} packets")
     
     # Write to file
-    output_file = Path(__file__).parent / "cubesat_with_events.czml"
+    output_filename = os.getenv('CZML_OUTPUT_FILE', 'cubesat_with_events.czml')
+    output_file = Path(__file__).parent / output_filename
     print(f"\n[4/4] Writing CZML to {output_file}...")
     with open(output_file, 'w') as f:
         json.dump(czml, f, indent=2)
     
     print(f"\n✅ CZML file created successfully!")
     print(f"\nTo view:")
-    print(f"1. Open czml_viewer.html in a web browser")
+    viewer_file = os.getenv('CZML_VIEWER_FILE', 'czml_viewer_enhanced.html')
+    print(f"1. Open {viewer_file} in a web browser")
     print(f"2. Or upload to https://sandcastle.cesium.com/")
     print(f"3. Look for event markers:")
     print(f"   ☀️  Solar Flares (orange glow)")

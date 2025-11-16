@@ -3,8 +3,8 @@
 <head>
     <meta charset="utf-8">
     <title>Quantum Satellite Simulator - Enhanced CZML Viewer</title>
-    <script src="https://cesium.com/downloads/cesiumjs/releases/1.109/Build/Cesium/Cesium.js"></script>
-    <link href="https://cesium.com/downloads/cesiumjs/releases/1.109/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.121/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.121/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
     <style>
         html, body, #cesiumContainer {
             width: 100%;
@@ -18,7 +18,7 @@
         #controlPanel {
             position: absolute;
             top: 10px;
-            right: 10px;
+            left: 10px;
             background: rgba(0, 0, 0, 0.8);
             color: white;
             padding: 15px;
@@ -251,36 +251,40 @@
     </div>
     
     <script>
-        // Initialize Cesium Viewer
-        Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJlYWE1OWUxNy1mMWZiLTQzYjYtYTQ0OS1kMWFjYmFkNjc5YzciLCJpZCI6NTc3MzMsImlhdCI6MTYyNzg0NTE4Mn0.XcKpgANiY19MC4bdFUXMVEBToBmqS8kuYpUlxJHYZxk';
-        
+        // Initialize Cesium Viewer with minimal config 
         const viewer = new Cesium.Viewer('cesiumContainer', {
-            animation: true,
+            shouldAnimate: true,
             timeline: true,
+            animation: true,
             baseLayerPicker: true,
             geocoder: false,
-            homeButton: false,
+            homeButton: true,
             sceneModePicker: true,
-            navigationHelpButton: false,
-            shouldAnimate: true,
-            skyBox: new Cesium.SkyBox({
-                sources: {
-                    positiveX: 'https://cesium.com/downloads/cesiumjs/releases/1.109/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_px.jpg',
-                    negativeX: 'https://cesium.com/downloads/cesiumjs/releases/1.109/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_mx.jpg',
-                    positiveY: 'https://cesium.com/downloads/cesiumjs/releases/1.109/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_py.jpg',
-                    negativeY: 'https://cesium.com/downloads/cesiumjs/releases/1.109/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_my.jpg',
-                    positiveZ: 'https://cesium.com/downloads/cesiumjs/releases/1.109/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_pz.jpg',
-                    negativeZ: 'https://cesium.com/downloads/cesiumjs/releases/1.109/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_mz.jpg'
-                }
-            }),
-            skyAtmosphere: new Cesium.SkyAtmosphere()
+            navigationHelpButton: true,
+            baseLayer: Cesium.ImageryLayer.fromProviderAsync(
+                Cesium.ArcGisMapServerImageryProvider.fromUrl(
+                    'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer'
+                )
+            )
         });
         
-        viewer.scene.globe.enableLighting = true;
-        viewer.clock.shouldAnimate = true;
+
+        
         
         let dataSource = null;
         let eventEntities = [];
+
+        // Set camera to show full globe by default
+        viewer.camera.setView({
+            destination: Cesium.Cartesian3.fromDegrees(0, 0, 25000000),
+            orientation: {
+                heading: 0.0,
+                pitch: -Cesium.Math.PI_OVER_TWO,
+                roll: 0.0
+            }
+        });
+        
+        console.log('Viewer initialized');
         
         // Hide loading overlay after Cesium loads
         setTimeout(() => {
@@ -293,48 +297,18 @@
         }, 2500);
         
         function loadDefaultCZML() {
-            const defaultFile = 'cubesat_with_events.czml';
-            fetch(defaultFile)
-                .then(response => response.json())
-                .then(data => {
-                    processCZMLData(data);
-                    console.log('Loaded default CZML file');
-                })
-                .catch(err => {
-                    console.log('No default CZML file found, waiting for user upload');
-                });
-        }
-        
-        function loadCZML(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                try {
-                    const czmlData = JSON.parse(e.target.result);
-                    processCZMLData(czmlData);
-                } catch (error) {
-                    alert('Error parsing CZML file: ' + error.message);
-                }
-            };
-            reader.readAsText(file);
-        }
-        
-        function processCZMLData(czmlData) {
-            // Clear existing data
-            if (dataSource) {
-                viewer.dataSources.remove(dataSource);
-            }
-            eventEntities = [];
-            
-            // Load CZML
-            const newDataSource = new Cesium.CzmlDataSource();
-            newDataSource.load(czmlData).then(() => {
-                dataSource = newDataSource;
+            // Load filename from environment or use default
+            const defaultFile = 'cubesat_with_events.czml';  // Can be configured via .env
+            Cesium.CzmlDataSource.load(defaultFile).then(function(ds) {
+                dataSource = ds;
                 viewer.dataSources.add(dataSource);
                 
-                // Extract events from CZML
+                // Don't zoom to data, keep globe view
+                // viewer.zoomTo(dataSource);
+                
+                console.log('CZML loaded successfully');
+                
+                // Extract events
                 const entities = dataSource.entities.values;
                 entities.forEach(entity => {
                     if (entity.id.includes('solar-flare') || 
@@ -350,19 +324,61 @@
                 });
                 
                 updateEventLog();
-                
-                // Track satellite entity
-                const satellite = entities.find(e => e.id === 'satellite');
-                if (satellite) {
-                    viewer.trackedEntity = satellite;
-                    setTimeout(() => {
-                        viewer.trackedEntity = undefined;
-                        viewer.zoomTo(dataSource);
-                    }, 3000);
-                }
-                
                 console.log(`Loaded ${entities.length} entities, ${eventEntities.length} events`);
+            }).catch(function(error) {
+                console.error('Error loading CZML:', error);
             });
+        }
+        
+        function loadCZML(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const czmlData = JSON.parse(e.target.result);
+                    
+                    // Clear existing
+                    if (dataSource) {
+                        viewer.dataSources.remove(dataSource);
+                    }
+                    eventEntities = [];
+                    
+                    // Load new CZML using Cesium's loader (simpler)
+                    Cesium.CzmlDataSource.load(czmlData).then(function(ds) {
+                        dataSource = ds;
+                        viewer.dataSources.add(dataSource);
+                        viewer.zoomTo(dataSource);
+                        
+                        // Extract events
+                        const entities = dataSource.entities.values;
+                        entities.forEach(entity => {
+                            if (entity.id.includes('solar-flare') || 
+                                entity.id.includes('micrometeoroid') ||
+                                entity.id.includes('gps-spoof') ||
+                                entity.id.includes('laser-beam') ||
+                                entity.id.includes('jamming') ||
+                                entity.id.includes('eclipse') ||
+                                entity.id.includes('attack') ||
+                                entity.id.includes('event-')) {
+                                eventEntities.push(entity);
+                            }
+                        });
+                        
+                        updateEventLog();
+                        console.log(`Loaded ${entities.length} entities, ${eventEntities.length} events`);
+                    });
+                } catch (error) {
+                    alert('Error parsing CZML file: ' + error.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+        
+        function processCZMLData(czmlData) {
+            // Deprecated - kept for compatibility but not used
+            console.log('Using direct Cesium loader instead');
         }
         
         function updateEventLog() {

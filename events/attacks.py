@@ -174,14 +174,7 @@ class JammingAttack(Event):
 @dataclass
 class LaserDazzle(Event):
     """
-    Laser dazzling attack blinding optical sensors.
-    
-    Effects:
-    - Star tracker malfunction
-    - Attitude determination failure
-    - Sensor calibration errors
-    - Temporary blindness (recovery after event)
-    - Duration: 30 seconds to 5 minutes
+    the 
     """
     
     def __post_init__(self):
