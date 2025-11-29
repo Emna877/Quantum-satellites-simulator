@@ -34,6 +34,42 @@ python -m http.server 8000
 # Open browser to: http://localhost:8000/czml_viewer_enhanced.html
 ```
 
+### Generating longer (continuous) CZML runs
+
+You can control the duration and orbital period when generating CZML so the
+satellite orbit appears continuous for many hours. The exporter accepts CLI
+options and environment variables:
+
+- `--hours <float>` : duration in hours for the generated CZML (overrides env)
+- `--orbit-minutes <float>` : orbital period in minutes (default: 90)
+- `CZML_DURATION_HOURS` : same as `--hours`, set via environment variable
+- `ORBIT_PERIOD_MINUTES` : same as `--orbit-minutes`, set via environment
+- `CZML_STEP_SECONDS` : sampling step in seconds (default: 30)
+
+Examples (PowerShell):
+
+```powershell
+# Generate a 6-hour CZML with default 90-minute orbit
+python export_czml_with_events.py --hours 6
+
+# Generate a 12-hour CZML with a 60-minute orbit and 10s sampling
+$env:ORBIT_PERIOD_MINUTES = "60"
+$env:CZML_STEP_SECONDS = "10"
+python export_czml_with_events.py --hours 12
+
+# Or set duration via env var instead of CLI
+$env:CZML_DURATION_HOURS = "4"
+python export_czml_with_events.py
+```
+
+Notes:
+- The exporter currently uses a simple circular orbit model for demo
+	positions; for physically accurate propagation, integrate Orekit
+	(`simulation/propagator.py`) into the exporter.
+- Increasing `--hours` will increase the CZML `clock.interval` and produce
+	a longer animation. Using `--orbit-minutes` makes the satellite complete
+	repeated orbits over the entire duration so the motion appears continuous.
+
 ## 📊 Features
 
 ### Simulation Engine

@@ -20,6 +20,8 @@ from typing import List, Dict, Any
 import random
 import sys
 import os
+import argparse
+import math
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -512,8 +514,44 @@ def main():
     
     # For demonstration, create mock satellite positions (replace with actual propagation)
     epoch = datetime.datetime.utcnow()
-    duration = 3600  # 1 hour
-    step = 30  # 30 seconds
+
+    # Allow overriding duration via environment variable or CLI argument
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('--hours', type=float, help='Duration in hours for CZML (overrides env)')
+    parser.add_argument('--orbit-minutes', type=float, help='Orbital period in minutes (default 90)')
+    args, _ = parser.parse_known_args()
+
+    env_hours = os.getenv('CZML_DURATION_HOURS')
+    hours = None
+    if args.hours is not None:
+        hours = args.hours
+    elif env_hours is not None:
+        try:
+            hours = float(env_hours)
+        except Exception:
+            hours = 1.0
+
+    if hours is None:
+        hours = 1.0  # default 1 hour
+
+    duration = int(hours * 3600)
+
+    # Step size (seconds)
+    step = int(os.getenv('CZML_STEP_SECONDS', '30'))
+
+    # Orbit period (minutes) -> seconds. Use CLI arg > env var > default
+    env_orbit_minutes = os.getenv('ORBIT_PERIOD_MINUTES')
+    if args.orbit_minutes is not None:
+        orbit_period_minutes = args.orbit_minutes
+    elif env_orbit_minutes is not None:
+        try:
+            orbit_period_minutes = float(env_orbit_minutes)
+        except Exception:
+            orbit_period_minutes = 90.0
+    else:
+        orbit_period_minutes = 90.0
+
+    orbit_period_seconds = int(orbit_period_minutes * 60)
     
     print("\n[1/4] Generating satellite positions...")
     sat_positions = []
@@ -524,16 +562,16 @@ def main():
     for t in range(0, duration + 1, step):
         timestamp = epoch + timedelta(seconds=t)
         # Simple circular orbit (replace with Orekit propagation)
-        angle = (t / duration) * 6.28  # One full orbit
+        # Use orbit period so the satellite completes multiple orbits over the full duration
+        angle = ((t % orbit_period_seconds) / float(orbit_period_seconds)) * (2.0 * math.pi)
         x = orbit_radius * 0.9659  # cos(15°) * radius
         y = orbit_radius * 0.2588 * (1 if t % 5400 < 2700 else -1)  # sin(15°)
         z = orbit_radius * 0.6  # Slight tilt
-        
+
         # Rotate
-        import math
         rot_x = x * math.cos(angle) - y * math.sin(angle)
         rot_y = x * math.sin(angle) + y * math.cos(angle)
-        
+
         sat_positions.append((timestamp, rot_x, rot_y, z))
     
     print(f"  Generated {len(sat_positions)} position samples")

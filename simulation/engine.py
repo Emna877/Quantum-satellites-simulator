@@ -138,8 +138,7 @@ class SimulationEngine:
             raise RuntimeError("Must call setup() before run()")
         
         self.running = True
-        elapsed_seconds = 0.0
-        
+
         print(f"[Engine] Starting simulation at {self.clock.current_time.isoformat()}")
         print(f"[Engine] Press Ctrl+C to stop\n")
         
@@ -155,12 +154,12 @@ class SimulationEngine:
                               f"(Severity: {event.severity.name}, "
                               f"Type: {'ATTACK' if event.is_attack else 'ENVIRONMENTAL'})")
                 
-                # Phase 2: Propagate orbital dynamics
-                elapsed_seconds += self.clock.time_step
+                # Phase 2: Propagate orbital dynamics (advance by this tick's delta)
+                dt = self.clock.time_step
                 self.state = update_state_from_propagator(
                     self.state,
                     self.propagator,
-                    elapsed_seconds
+                    dt
                 )
                 self.state.timestamp = self.clock.current_time
                 

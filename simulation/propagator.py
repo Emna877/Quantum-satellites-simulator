@@ -296,28 +296,33 @@ def initialize_state_from_propagator(
 def update_state_from_propagator(
     state: SatelliteState,
     propagator: OrekitPropagator,
-    elapsed_seconds: float
+    dt_seconds: float
 ) -> SatelliteState:
     """
-    Update SatelliteState with new propagated position.
-    
+    Update SatelliteState by advancing the propagator by a delta time.
+
+    This function expects `dt_seconds` to be the time increment (seconds)
+    since the last propagation step (i.e. a per-tick delta), not the
+    cumulative elapsed time since initialization. The propagator maintains
+    its own internal epoch/state between calls.
+
     Args:
         state: Current satellite state
         propagator: OrekitPropagator instance
-        elapsed_seconds: Seconds since propagator initialization
-        
+        dt_seconds: Time step in seconds to advance the propagator
+
     Returns:
         Updated SatelliteState with new position/velocity
     """
-    # Get new position and velocity
-    position, velocity = propagator.propagate_step(elapsed_seconds)
+    # Advance propagator by the delta time and get new position/velocity
+    position, velocity = propagator.propagate_step(dt_seconds)
     altitude = propagator.get_altitude(position)
     in_eclipse = propagator.is_in_eclipse(position, state.timestamp)
-    
+
     # Update state
     state.position = position
     state.velocity = velocity
     state.altitude = altitude
     state.in_eclipse = in_eclipse
-    
+
     return state
