@@ -305,6 +305,20 @@
                 
                 // Don't zoom to data, keep globe view
                 // viewer.zoomTo(dataSource);
+                    // Ensure the viewer clock loops indefinitely and keeps animating
+                    viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP;
+                    viewer.clock.shouldAnimate = true;
+                    try {
+                        if (viewer.clock.startTime && viewer.clock.stopTime) {
+                            viewer.timeline.zoomTo(viewer.clock.startTime, viewer.clock.stopTime);
+                            // If currentTime is at or past stop, rewind to start so looping continues
+                            if (Cesium.JulianDate.compare(viewer.clock.currentTime, viewer.clock.stopTime) >= 0) {
+                                viewer.clock.currentTime = viewer.clock.startTime;
+                            }
+                        }
+                    } catch (e) {
+                        // Ignore timeline adjustments if unavailable
+                    }
                 
                 console.log('CZML loaded successfully');
                 
@@ -349,7 +363,21 @@
                     Cesium.CzmlDataSource.load(czmlData).then(function(ds) {
                         dataSource = ds;
                         viewer.dataSources.add(dataSource);
-                        viewer.zoomTo(dataSource);
+                            viewer.zoomTo(dataSource);
+
+                            // Force clock to loop and animate so the animation doesn't stop
+                            viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP;
+                            viewer.clock.shouldAnimate = true;
+                            try {
+                                if (viewer.clock.startTime && viewer.clock.stopTime) {
+                                    viewer.timeline.zoomTo(viewer.clock.startTime, viewer.clock.stopTime);
+                                    if (Cesium.JulianDate.compare(viewer.clock.currentTime, viewer.clock.stopTime) >= 0) {
+                                        viewer.clock.currentTime = viewer.clock.startTime;
+                                    }
+                                }
+                            } catch (e) {
+                                // ignore
+                            }
                         
                         // Extract events
                         const entities = dataSource.entities.values;
