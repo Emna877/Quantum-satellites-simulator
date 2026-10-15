@@ -1,191 +1,41 @@
-from pathlib import Path
-import jpype
-import math
-import json
-import datetime
-import os
-
-# ---------- CONFIG ----------
-from config import get_simulation_config, validate_runtime_config, simulation_start
-
-RUNTIME_CONFIG = validate_runtime_config(get_simulation_config())
-JVM_PATH = RUNTIME_CONFIG['jvm_path']
-PROJECT_DIR = Path(RUNTIME_CONFIG['project_dir'])
-DATA_DIR = Path(RUNTIME_CONFIG['orekit_data_path'])
-OUT_CSV = Path(RUNTIME_CONFIG['orbit_csv_file'])
-OUT_CZML = Path(RUNTIME_CONFIG['orbit_czml_file'])
-PROP_SECONDS = RUNTIME_CONFIG['duration_seconds']
-STEP_SECONDS = RUNTIME_CONFIG['sample_step_seconds']
-# satellite visual properties
-SAT_NAME = "CubeSat-1"
-# ----------------------------
-
-# helper: ISO timestamp for CZML epoch
-def iso(dt):
-    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-# 1) collect JARs and start JVM
-jars = [str(p) for p in PROJECT_DIR.glob("*.jar")]
-if not jars:
-    raise SystemExit("No JARs found in project folder. Put orekit + hipparchus jars here.")
-if not jpype.isJVMStarted():
-    jpype.startJVM(JVM_PATH, "-ea", classpath=jars)
-
-# 2) JClasses
-JFile = jpype.JClass("java.io.File")
-DataContext = jpype.JClass("org.orekit.data.DataContext")
-DirectoryCrawler = jpype.JClass("org.orekit.data.DirectoryCrawler")
-FramesFactory = jpype.JClass("org.orekit.frames.FramesFactory")
-KeplerianOrbit = jpype.JClass("org.orekit.orbits.KeplerianOrbit")
-PositionAngleType = jpype.JClass("org.orekit.orbits.PositionAngleType")
-KeplerianPropagator = jpype.JClass("org.orekit.propagation.analytical.KeplerianPropagator")
-AbsoluteDate = jpype.JClass("org.orekit.time.AbsoluteDate")
-TimeScalesFactory = jpype.JClass("org.orekit.time.TimeScalesFactory")
-Constants = jpype.JClass("org.orekit.utils.Constants")
-Geo = jpype.JClass("org.orekit.bodies.OneAxisEllipsoid")
-IERSConventions = jpype.JClass("org.orekit.utils.IERSConventions")
-Vector3D = jpype.JClass("org.hipparchus.geometry.euclidean.threed.Vector3D")
-
-# 3) load orekit data
-dm = DataContext.getDefault().getDataProvidersManager()
-dm.addProvider(DirectoryCrawler(JFile(str(DATA_DIR))))
-print("Orekit data loaded.")
-
-# 4) define a circular LEO CubeSat orbit (700 km alt)
-earth_radius = Constants.WGS84_EARTH_EQUATORIAL_RADIUS
-mu = Constants.WGS84_EARTH_MU
-orbit_config = RUNTIME_CONFIG['orbit']
-a = orbit_config['semi_major_axis']
-e = orbit_config['eccentricity']
-i = math.radians(orbit_config['inclination_deg'])
-raan = math.radians(orbit_config['raan_deg'])
-pa = math.radians(orbit_config['arg_perigee_deg'])
-ma = math.radians(orbit_config['mean_anomaly_deg'])
-epoch_py = simulation_start(RUNTIME_CONFIG['start_time'])
-epoch = AbsoluteDate(epoch_py.year, epoch_py.month, epoch_py.day, epoch_py.hour,
-                     epoch_py.minute, epoch_py.second + epoch_py.microsecond / 1e6,
-                     TimeScalesFactory.getUTC())
-
-orbit = KeplerianOrbit(a, e, i, pa, raan, ma, PositionAngleType.MEAN, FramesFactory.getGCRF(), epoch, mu)
-prop = KeplerianPropagator(orbit)
-print("Propagator ready.")
-
-# 5) prepare Earth ellipsoid for geodetic conversions
-earth_ellipsoid = Geo(Constants.WGS84_EARTH_EQUATORIAL_RADIUS,
-                      Constants.WGS84_EARTH_FLATTENING,
-                      FramesFactory.getITRF(IERSConventions.IERS_2010, True)
-                      )
-
-# 6) sampling loop -> prepare arrays for CSV and CZML (cartesian positions)
-samples = []
-times_iso = []
-t = 0
-# define epoch_py once
- # epoch_py is read from shared configuration above
-while t <= PROP_SECONDS:
-    date = epoch.shiftedBy(t)
-    # inertial frame positions
-    pv = prop.getPVCoordinates(date, FramesFactory.getGCRF())
-    pos = pv.getPosition()
-    # convert to ITRF & geodetic
-    itrf = FramesFactory.getITRF(IERSConventions.IERS_2010, True)
-    transform = FramesFactory.getGCRF().getTransformTo(itrf, date)
-    itrf_pos = transform.transformPosition(pos)
-    # use ITRF (ECEF) coordinates for CSV and CZML so Cesium can render correctly
-    x = float(itrf_pos.getX()); y = float(itrf_pos.getY()); z = float(itrf_pos.getZ())
-    try:
-        geo = earth_ellipsoid.transform(itrf_pos, itrf, date)
-    except TypeError:
-        geo = earth_ellipsoid.transform(itrf_pos, itrf)
-    lat = float(geo.getLatitude() * 180.0 / math.pi)
-    lon = float(geo.getLongitude() * 180.0 / math.pi)
-    alt_m = float(geo.getAltitude())
-    samples.append((t, x, y, z, lat, lon, alt_m))
-    # for CZML we use absolute ISO times and cartesian ECEF positions
-    sample_time = epoch_py + datetime.timedelta(seconds=int(t))
-    times_iso.append((sample_time, (x, y, z)))
-    t += STEP_SECONDS
-
-# 7) write CSV
+"""Export the configured Orekit orbit to CSV and CZML."""
 import csv
-OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
-with open(OUT_CSV, "w", newline="") as f:
-    w = csv.writer(f)
-    w.writerow(["t_s", "x_m", "y_m", "z_m", "lat_deg", "lon_deg", "alt_m"])
-    for row in samples:
-        w.writerow(row)
-print("CSV written:", OUT_CSV)
+import json
+import math
+from pathlib import Path
+from config import get_simulation_config
+from simulation.propagator import OrekitPropagator, iso
+from export_czml_with_events import create_czml_document
 
-# 8) create CZML document
-# CZML expects timestamps in ISO8601 (Z) and positions in fixed reference frame.
-# We'll create a simple CZML with a time-tagged list of cartesian positions.
-czml = []
-# Document packet
-doc = {
-    "id": "document",
-    "name": "CubeSat orbit CZML",
-    "version": "1.0"
-}
-czml.append(doc)
 
-# Satellite packet
-# Build position array: [timeISO, x, y, z, timeISO2, x2,y2,z2, ...]
-position_array = []
-for (dt, (x, y, z)) in times_iso:
-    iso_t = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    position_array.extend([iso_t, x, y, z])
+def main():
+    config = get_simulation_config()
+    propagator = OrekitPropagator.from_config(config)
+    try:
+        states = propagator.sample_states(config['duration_seconds'], config['sample_step_seconds'])
+        positions = [(state.timestamp, *state.position.tolist()) for state in states]
+        output = Path(config['orbit_csv_file'])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with output.open('w', newline='', encoding='utf-8') as stream:
+            writer = csv.writer(stream)
+            writer.writerow(['t_s', 'x_m', 'y_m', 'z_m', 'lat_deg', 'lon_deg', 'alt_m',
+                             'timestamp', 'vx_m_s', 'vy_m_s', 'vz_m_s', 'in_eclipse'])
+            for state in states:
+                geo = propagator.geodetic(state.position, state.timestamp)
+                writer.writerow([(state.timestamp-states[0].timestamp).total_seconds(),
+                    *state.position.tolist(), math.degrees(float(geo.getLatitude())),
+                    math.degrees(float(geo.getLongitude())), state.altitude, iso(state.timestamp),
+                    *state.velocity.tolist(), int(state.in_eclipse)])
+        document = create_czml_document(positions, [], config['duration_seconds'])
+        output = Path(config['orbit_czml_file'])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(document, indent=2), encoding='utf-8')
+        print(f"Orekit period: {propagator.period_seconds/60:.3f} minutes")
+        print(f"CSV written: {config['orbit_csv_file']}")
+        print(f"CZML written: {output}")
+    finally:
+        propagator.shutdown()
 
-sat_packet = {
-    "id": SAT_NAME,
-    "name": SAT_NAME,
-    "availability": "{}".format(iso(epoch_py)) + "/" + iso((epoch_py + datetime.timedelta(seconds=PROP_SECONDS))),
-    "position": {
-        "epoch": iso(epoch_py),
-        "cartesian": [],
-        # Explicitly state FIXED reference frame (ECEF) so Cesium interprets samples correctly
-        "referenceFrame": "FIXED"
-    },
-    "point": {"pixelSize": 10, "color": {"rgba": [255, 0, 0, 255]}},
-    "label": {
-        "text": SAT_NAME,
-        "font": "12pt Helvetica, Arial, sans-serif",
-        "fillColor": {"rgba": [255, 255, 255, 255]},
-        "outlineColor": {"rgba": [0, 0, 0, 200]},
-        "outlineWidth": 2,
-        "pixelOffset": [0, -30]
-    },
-    
-    "path": {
-        "show": True,
-        "leadTime": 0,
-        "trailTime": PROP_SECONDS,
-        "width": 2,
-        "material": {
-            "solidColor": {
-                "color": {"rgba": [255, 0, 0, 255]}
-            }
-        }
-    },  
-}
 
-# Convert position_array into numeric seconds from epoch (safer)
-epoch_dt = epoch_py
-cartesian_samples = []
-for (dt, (x, y, z)) in times_iso:
-    seconds = (dt - epoch_dt).total_seconds()
-    cartesian_samples.extend([seconds, x, y, z])
-
-sat_packet["position"]["epoch"] = iso(epoch_dt)
-sat_packet["position"]["cartesian"] = cartesian_samples
-
-czml.append(sat_packet)
-
-# write CZML
-OUT_CZML.parent.mkdir(parents=True, exist_ok=True)
-with open(OUT_CZML, "w", newline="") as f:
-    json.dump(czml, f, indent=2)
-print("CZML written:", OUT_CZML)
-
-# 9) shutdown
-if jpype.isJVMStarted():
-    jpype.shutdownJVM()
+if __name__ == '__main__':
+    main()

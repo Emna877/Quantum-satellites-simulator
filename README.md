@@ -1,6 +1,6 @@
 # Quantum Satellites Simulator
 
-Orekit-based satellite motion with experimental radio/QKD link calculations and Cesium visualization. The intended comparison is classical versus QKD-assisted communication security. Encryption, full QKD protocols, and a unified communication pipeline remain future work. Machine learning is deferred; see [TODO.md](TODO.md).
+Orekit-based satellite motion with experimental radio/QKD link calculations and Cesium visualization. The intended comparison is classical versus QKD-assisted communication security. Encryption, full QKD protocols, and unified subsystem/event physics remain future work. Machine learning is deferred; see [TODO.md](TODO.md).
 
 ## Setup
 
@@ -30,13 +30,13 @@ Automatic discovery selects the highest detected compatible version. An explicit
 JVM_PATH=C:/Program Files/Java/jdk-25/bin/server/jvm.dll
 ```
 
-Shared settings include SIM_START_TIME (UTC), SIM_TIME_STEP, SIM_SPEED_MULTIPLIER, orbital elements, CZML_DEFAULT_DURATION_SECONDS, CZML_STEP_SECONDS, and output paths. The engine and Orekit scripts use the same runtime path configuration. The exporter and communication example now read common orbital elements and start time; the communication example still searches for a visible pass and may adjust its example orbit/epoch.
+Shared settings include SIM_START_TIME (UTC), SIM_TIME_STEP, SIM_SPEED_MULTIPLIER, orbital elements, CZML_DEFAULT_DURATION_SECONDS, CZML_STEP_SECONDS, and output paths. The engine and Orekit scripts use the same runtime path configuration. The engine, both exporters, and communication example use the same OrekitPropagator and orbital elements. The communication example preserves the configured orbit and epoch; no visible pass is a valid result. To examine a full day, set CZML_DEFAULT_DURATION_SECONDS=86400 before running qkd.py.
 
 ## Verify compatibility
 
 ```powershell
 python -m scripts.check_runtime
-python -m unittest scripts.test_runtime_config
+python -m unittest scripts.test_runtime_config scripts.test_orbit
 ```
 
 The checker prints the selected JVM, loads the 11 bundled JAR files and Orekit data, propagates a satellite for 60 seconds, and exits with code 0 and PASS on success. It runs in its own process because JPype cannot restart a stopped JVM in the same Python process.
@@ -52,7 +52,7 @@ python -m http.server 8000
 
 Open http://localhost:8000/czml_viewer.html. The export writes `cubesat.czml` and `orbit_positions.csv`. Both can be redirected with ORBIT_CZML_FILE and ORBIT_CSV_FILE; if the CZML filename changes, update the simple viewer's load URL too. Output parent directories are created automatically. Cesium and map imagery require internet access.
 
-Run the engine with `python -m simulation.engine`; stop it with Ctrl+C. Its event and subsystem correctness work is tracked in TODO sections 2-4. `python qkd.py` runs the separate experimental link calculation; it is not yet a complete security comparison.
+Run the engine with `python -m simulation.engine`; stop it with Ctrl+C. Its remaining event and subsystem correctness work is tracked in TODO sections 3-4. `python qkd.py` runs the separate experimental link calculation; it is not yet a complete security comparison.
 
 ## Enhanced event demonstration
 
@@ -60,7 +60,7 @@ Run the engine with `python -m simulation.engine`; stop it with Ctrl+C. Its even
 python export_czml_with_events.py --hours 6
 ```
 
-Open http://localhost:8000/czml_viewer_enhanced.html. This exporter still uses mock orbital positions and manually scheduled demonstration events. It must be connected to Orekit before use as the scientific simulation. CLI duration overrides CZML_DURATION_HOURS, which overrides CZML_DEFAULT_DURATION_SECONDS. CZML_STEP_SECONDS sets sampling. The demo-only orbit period can be set with --orbit-minutes or ORBIT_PERIOD_MINUTES; physical Orekit orbits derive their period from their elements.
+Open http://localhost:8000/czml_viewer_enhanced.html. Both viewers now display Orekit orbital positions. The enhanced exporter adds manually scheduled demonstration attacks and sample-aligned eclipse transition markers. Event effects remain prototypes pending TODO section 3. CLI duration overrides CZML_DURATION_HOURS, which overrides CZML_DEFAULT_DURATION_SECONDS. CZML_STEP_SECONDS sets sampling; the exact run endpoint is always included. Orbit period is derived from the orbital elements (about 98.773 minutes at the default 700 km altitude). The obsolete --orbit-minutes and ORBIT_PERIOD_MINUTES settings are rejected; remove them and configure orbital elements instead.
 
 The enhanced viewer defaults to `cubesat_with_events.czml`; use Load CZML for custom output files. Space toggles playback, R resets the view, and arrow keys adjust speed.
 
@@ -71,8 +71,33 @@ The enhanced viewer defaults to `cubesat_with_events.czml`; use Load CZML for cu
 - `events/`: environmental and attack event prototypes.
 - `qkd.py`: separate visibility, RF, and approximate optical/QKD calculations.
 - `export_czml.py`: Orekit orbit export.
-- `export_czml_with_events.py`: event visualization demo.
+- `export_czml_with_events.py`: Orekit orbit with demonstration event markers.
 - `scripts/check_runtime.py`: runtime smoke check.
 - `scripts/test_runtime_config.py`: configuration regression checks.
+- `scripts/test_orbit.py`: orbital invariants, ECEF velocity, UTC, eclipse, contact, engine, and exporter regression checks.
 
 The legacy phase tests have known issues tracked in TODO.md. A license has not yet been selected/provided; resolving this is also tracked there.
+
+## Orbital model and verification
+
+The shared baseline is an analytical two-body Keplerian orbit. J2, atmospheric drag,
+solar radiation pressure, and other force models are deliberately not enabled yet.
+ECEF position and velocity are requested together from Orekit in ITRF, including the
+Earth rotation contribution to velocity. Absolute-time queries do not advance the
+incremental cursor. Dates are normalized to UTC (legacy naive dates are interpreted
+as UTC), and fractional seconds are preserved.
+
+Eclipse state uses Orekit EclipseDetector with solar ephemerides and the Earth
+ellipsoid, classifying full umbra. Partial shadow is not yet a fractional solar-power
+model. Displayed eclipse transitions are sampled, with timing accuracy limited by
+CZML_STEP_SECONDS. Station visibility uses TopocentricFrame and root-found
+ElevationDetector crossings at the configured threshold (currently 5 degrees in
+qkd.py), including contact already underway at the start or end of a run. Detection
+uses a 30-second maximum check interval and 1-microsecond root tolerance; this is
+not a guarantee of physical accuracy or detection of arbitrarily short grazing passes.
+
+Validation: 15 regression checks pass, including matching positions between both
+exporters and correct final samples for a 65-second run sampled every 30 seconds.
+A 24-hour run from the default epoch produced five Tunis contacts above 5 degrees.
+The current approximate QKD model still produces zero secret keys in that scenario;
+communication-model corrections remain in TODO section 5.

@@ -1,15 +1,22 @@
 [
   {
     "id": "document",
-    "name": "CubeSat orbit CZML",
-    "version": "1.0"
+    "name": "Quantum Satellite Simulation with Events",
+    "version": "1.0",
+    "clock": {
+      "interval": "2025-11-09T12:00:00.000000Z/2025-11-09T13:00:00.000000Z",
+      "currentTime": "2025-11-09T12:00:00.000000Z",
+      "multiplier": 10,
+      "range": "LOOP_STOP",
+      "step": "SYSTEM_CLOCK_MULTIPLIER"
+    }
   },
   {
-    "id": "CubeSat-1",
-    "name": "CubeSat-1",
-    "availability": "2025-11-09T12:00:00Z/2025-11-09T13:00:00Z",
+    "id": "satellite",
+    "name": "Quantum CubeSat",
+    "availability": "2025-11-09T12:00:00.000000Z/2025-11-09T13:00:00.000000Z",
     "position": {
-      "epoch": "2025-11-09T12:00:00Z",
+      "epoch": "2025-11-09T12:00:00.000000Z",
       "cartesian": [
         0.0,
         -5532968.423237966,
@@ -498,20 +505,14 @@
       ],
       "referenceFrame": "FIXED"
     },
-    "point": {
-      "pixelSize": 10,
-      "color": {
-        "rgba": [
-          255,
-          0,
-          0,
-          255
-        ]
-      }
+    "billboard": {
+      "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH3QQODhkVY3s7zwAAAB1pVFh0Q29tbWVudAAAAAAAQ3JlYXRlZCB3aXRoIEdJTVBkLmUHAAAA50lEQVQ4y62TMU4DMRBF/zOb3UqJBEWKFClSpEiRIkWKFC5cuXDhwpULV65cuXLhwpULFy5cuHDhwoULV65cuXLlypUrV65cuXLlypUrV65cuXLlypUrV65cuXLlypUrV65cuXLlypUrV65cuXLlypUrV65cuXLlypUrV65cuXLlypUrV65cuXLlypUrV65cuXLlypUrV65cuXLlypUrV65cuXLlypUrV65cuXLlypUrV65cuXLlypUrV65cuXLlypUrV65cuXLlypUrV65cuXLlypUrV65c+T/U1AAAAP//AwBKHAVwmfRi3AAAAABJRU5ErkJggg==",
+      "scale": 1.5,
+      "show": true
     },
     "label": {
-      "text": "CubeSat-1",
-      "font": "12pt Helvetica, Arial, sans-serif",
+      "text": "Quantum CubeSat",
+      "font": "14pt monospace",
       "fillColor": {
         "rgba": [
           255,
@@ -529,28 +530,32 @@
         ]
       },
       "outlineWidth": 2,
-      "pixelOffset": [
-        0,
-        -30
-      ]
+      "pixelOffset": {
+        "cartesian2": [
+          0,
+          -25
+        ]
+      },
+      "show": true
     },
     "path": {
       "show": true,
-      "leadTime": 0,
-      "trailTime": 3600,
-      "width": 2,
+      "leadTime": 300,
+      "trailTime": 1800,
+      "width": 3,
       "material": {
         "solidColor": {
           "color": {
             "rgba": [
+              0,
               255,
-              0,
-              0,
-              255
+              255,
+              200
             ]
           }
         }
-      }
+      },
+      "resolution": 120
     }
   }
 ]

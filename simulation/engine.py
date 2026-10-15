@@ -19,6 +19,7 @@ import sys
 from .state import SatelliteState
 from .propagator import OrekitPropagator, initialize_state_from_propagator, update_state_from_propagator
 from .clock import SimulationClock
+from config import simulation_start
 from events.manager import EventManager, EventConfig
 
 
@@ -69,26 +70,9 @@ class SimulationEngine:
         if not orekit_data_path.exists():
             raise ValueError(f"orekit_data_path does not exist: {orekit_data_path}")
         
-        self.propagator = OrekitPropagator(jvm_path, orekit_data_path)
-        
-        # Create orbit from Keplerian elements
-        orbit_config = self.config.get("orbit", {})
-        start_time_str = self.config.get("start_time", datetime.utcnow().isoformat())
-        # Handle 'Z' suffix for UTC timezone
-        if start_time_str.endswith('Z'):
-            start_time_str = start_time_str[:-1] + '+00:00'
-        start_time = datetime.fromisoformat(start_time_str)
-        
-        self.propagator.create_propagator_from_keplerian(
-            epoch=start_time,
-            semi_major_axis=orbit_config.get("semi_major_axis", 6378137 + 700e3),  # 700 km altitude
-            eccentricity=orbit_config.get("eccentricity", 0.0),
-            inclination_deg=orbit_config.get("inclination_deg", 98.0),
-            raan_deg=orbit_config.get("raan_deg", 0.0),
-            arg_perigee_deg=orbit_config.get("arg_perigee_deg", 0.0),
-            mean_anomaly_deg=orbit_config.get("mean_anomaly_deg", 0.0),
-        )
-        
+        self.propagator = OrekitPropagator.from_config(self.config)
+        start_time = self.propagator.start_time
+
         # 2. Initialize simulation clock
         print("\n[2/4] Initializing simulation clock...")
         time_step = self.config.get("time_step", 1.0)
@@ -117,11 +101,9 @@ class SimulationEngine:
             event_config = EventConfig(**event_config)
         self.event_manager = EventManager(config=event_config)
         
-        # Schedule initial eclipse events
-        orbit_period = 2 * 3.14159 * (orbit_config.get("semi_major_axis", 6378137 + 700e3) ** 1.5) / (3.986004418e14 ** 0.5) / 60.0  # minutes
-        self.event_manager.schedule_eclipse_events(start_time, orbit_period)
-        print(f"  ✓ Event manager initialized (orbit period: {orbit_period:.1f} min)")
-        
+        orbit_period = self.propagator.period_seconds / 60.0
+        print(f"  Event manager initialized (Orekit period: {orbit_period:.3f} min)")
+
         print("  [TODO] Subsystem models")
         print("  [TODO] Telemetry logger")
         print("  [TODO] CZML streamer")
@@ -145,6 +127,17 @@ class SimulationEngine:
         
         try:
             while self.running:
+                if self.clock.paused:
+                    await asyncio.sleep(0.1)
+                    continue
+                # Advance clock and dynamics to the same instant before event evaluation.
+                previous_eclipse = self.state.in_eclipse
+                self.clock.tick()
+                self.state = update_state_from_propagator(self.state, self.propagator, self.clock.time_step)
+                if previous_eclipse != self.state.in_eclipse:
+                    from events.environmental import EclipseEntry, EclipseExit
+                    event_class = EclipseEntry if self.state.in_eclipse else EclipseExit
+                    self.event_manager.schedule_event(event_class(timestamp=self.state.timestamp))
                 # Phase 1: Generate and apply events
                 if self.event_manager:
                     events_occurred = self.event_manager.update(self.clock.current_time, self.state)
@@ -154,15 +147,6 @@ class SimulationEngine:
                         print(f"[Event] {event.event_type.value.upper()} "
                               f"(Severity: {event.severity.name}, "
                               f"Type: {'ATTACK' if event.is_attack else 'ENVIRONMENTAL'})")
-                
-                # Phase 2: Propagate orbital dynamics (advance by this tick's delta)
-                dt = self.clock.time_step
-                self.state = update_state_from_propagator(
-                    self.state,
-                    self.propagator,
-                    dt
-                )
-                self.state.timestamp = self.clock.current_time
                 
                 # Phase 3: Update subsystems (placeholder)
                 # if self.subsystem_models:
@@ -187,7 +171,6 @@ class SimulationEngine:
                     self._print_status()
                 
                 # Phase 7: Advance clock and sleep
-                self.clock.tick()
                 lag = self.clock.calculate_lag()
                 
                 if abs(lag) > 5.0:  # Warning if lag exceeds 5 seconds

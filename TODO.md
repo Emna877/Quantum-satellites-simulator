@@ -16,15 +16,17 @@ Verified: Python 3.13.7 and JPype 1.7.1 load Java 25, Orekit 13.1.2, Hipparchus 
 
 ## 2. Make Orekit the single source of satellite motion
 
-- [ ] Establish one shared propagator for the engine, communication calculations, and exporters.
-- [ ] Replace the enhanced exporter's mock orbit with Orekit positions.
-- [ ] Derive orbital period from the orbit.
-- [ ] Correct the Earth-fixed velocity transformation.
-- [ ] Synchronize orbital time, state timestamps, and the simulation clock.
-- [ ] Use timezone-aware UTC timestamps consistently.
-- [ ] Implement geometric eclipse detection.
-- [ ] Calculate station range, elevation, and contact windows through Orekit.
-- [ ] Validate the circular-orbit model before adding more force models.
+- [x] Establish one shared propagator for the engine, communication calculations, and exporters.
+- [x] Replace the enhanced exporter's mock orbit with Orekit positions.
+- [x] Derive orbital period from the orbit.
+- [x] Correct the Earth-fixed velocity transformation.
+- [x] Synchronize orbital time, state timestamps, and the simulation clock.
+- [x] Use timezone-aware UTC timestamps consistently.
+- [x] Implement geometric eclipse detection.
+- [x] Calculate station range, elevation, and contact windows through Orekit.
+- [x] Validate the circular-orbit model before adding more force models.
+
+Verified: all four entry points use the shared two-body Orekit wrapper. Circular orbit radius/speed/energy, ECEF velocity, UTC/subseconds, eclipse states, contact roots and clipped contacts, engine time alignment, and cross-exporter positions are covered by passing regression tests. A 24-hour communication run found five Tunis passes without changing the configured orbit. Full umbra is modeled; eclipse marker timestamps remain sample-aligned. See README.md for assumptions.
 
 ## 3. Simulation engine and events
 
@@ -33,8 +35,8 @@ Verified: Python 3.13.7 and JPype 1.7.1 load Java 25, Orekit 13.1.2, Hipparchus 
 - [ ] Make pause stop state updates and propagation.
 - [ ] Fix timing when simulation speed changes.
 - [ ] Apply instantaneous events exactly once.
-- [ ] Support events with identical timestamps.
-- [ ] Advance the state timestamp before evaluating event effects.
+- [x] Support events with identical timestamps.
+- [x] Advance the state timestamp before evaluating event effects.
 - [ ] Scale event probabilities and accumulated effects with elapsed time.
 - [ ] Fix the missing external_temp_c attribute.
 - [ ] Separate temporary disturbances from permanent damage.

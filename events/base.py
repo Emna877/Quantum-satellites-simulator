@@ -6,10 +6,11 @@ All events (environmental and attacks) inherit from the Event base class.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, Any, Optional
 import uuid
+from config import simulation_start
 
 
 class EventType(Enum):
@@ -60,7 +61,7 @@ class Event:
         ground_truth_label: True label for ML training (attack=1, natural=0)
     """
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     event_type: EventType = EventType.SOLAR_FLARE
     severity: EventSeverity = EventSeverity.LOW
     is_attack: bool = False
@@ -71,6 +72,7 @@ class Event:
     
     def __post_init__(self):
         """Validate event data after initialization."""
+        self.timestamp = simulation_start(self.timestamp.isoformat())
         # Auto-set ground truth label based on is_attack flag
         self.ground_truth_label = 1 if self.is_attack else 0
         
@@ -134,6 +136,7 @@ class Event:
             # Instantaneous event
             return False
         
+        current_time = simulation_start(current_time.isoformat())
         elapsed = (current_time - self.timestamp).total_seconds()
         return 0 <= elapsed <= self.duration_seconds
     
@@ -149,6 +152,7 @@ class Event:
         Returns:
             Multiplier from 0.0 to 1.0
         """
+        current_time = simulation_start(current_time.isoformat())
         if not self.is_active(current_time):
             return 0.0
         

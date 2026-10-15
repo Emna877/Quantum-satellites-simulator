@@ -55,9 +55,7 @@ GROUND_STATIONS = [
 ]
 
 # runtime/config flags
-AUTO_FIND_PASS = True       # if True, search forward for an epoch with a visible pass (keeps examples working)
 VERBOSE = False            # set True to enable debug prints
-USE_OREKIT_EVENTS = True   # if True, use Orekit ElevationDetector event detectors to compute rise/set exactly
 
 # helper functions
 def db2lin(db):
@@ -80,248 +78,24 @@ def boltzmann_db_hz():
 def shannon_capacity_bps(bw_hz, snr_linear):
     return bw_hz * math.log2(1.0 + snr_linear)
 
-# ---------------- start JVM & Orekit ----------------
-jars = [str(p) for p in PROJECT_DIR.glob("*.jar")]
-if not jars:
-    raise SystemExit("No JARs found in project folder. Put orekit + hipparchus jars here.")
-if not jpype.isJVMStarted():
-    jpype.startJVM(JVM_PATH, "-ea", classpath=jars)
-
-# JClasses
-JFile = jpype.JClass("java.io.File")
-DataContext = jpype.JClass("org.orekit.data.DataContext")
-DirectoryCrawler = jpype.JClass("org.orekit.data.DirectoryCrawler")
-FramesFactory = jpype.JClass("org.orekit.frames.FramesFactory")
-KeplerianOrbit = jpype.JClass("org.orekit.orbits.KeplerianOrbit")
-PositionAngleType = jpype.JClass("org.orekit.orbits.PositionAngleType")
-KeplerianPropagator = jpype.JClass("org.orekit.propagation.analytical.KeplerianPropagator")
-AbsoluteDate = jpype.JClass("org.orekit.time.AbsoluteDate")
-TimeScalesFactory = jpype.JClass("org.orekit.time.TimeScalesFactory")
-Constants = jpype.JClass("org.orekit.utils.Constants")
-Geo = jpype.JClass("org.orekit.bodies.OneAxisEllipsoid")
-IERSConventions = jpype.JClass("org.orekit.utils.IERSConventions")
-TopocentricFrame = jpype.JClass("org.orekit.frames.TopocentricFrame")
-GeodeticPoint = jpype.JClass("org.orekit.bodies.GeodeticPoint")
-Vector3D = jpype.JClass("org.hipparchus.geometry.euclidean.threed.Vector3D")
-
-# load orekit data
-dm = DataContext.getDefault().getDataProvidersManager()
-dm.addProvider(DirectoryCrawler(JFile(str(DATA_DIR))))
-print("Orekit data loaded.")
-
-# ---------------- define ground station(s) ----------------
-# Create Earth ellipsoid (used by all stations)
-earth = Geo(Constants.WGS84_EARTH_EQUATORIAL_RADIUS,
-            Constants.WGS84_EARTH_FLATTENING,
-            FramesFactory.getITRF(IERSConventions.IERS_2010, True))
-
-# Build TopocentricFrame objects for each configured ground station
-station_frames = {}
-for gs in GROUND_STATIONS:
-    gp = GeodeticPoint(math.radians(gs["lat_deg"]), math.radians(gs["lon_deg"]), gs["alt_m"])
-    frame = TopocentricFrame(earth, gp, gs.get("name", "GS"))
-    station_frames[gs["name"]] = {"frame": frame, "geodetic": gp, "cfg": gs}
-print(f"Created {len(station_frames)} ground station frame(s).")
-
-
-# ---------------- create orbit ----------------
-earth_radius = Constants.WGS84_EARTH_EQUATORIAL_RADIUS
-mu = Constants.WGS84_EARTH_MU
-orbit_config = RUNTIME_CONFIG['orbit']
-a = orbit_config['semi_major_axis']
-e = orbit_config['eccentricity']
-i = math.radians(orbit_config['inclination_deg'])
-raan = math.radians(orbit_config['raan_deg'])
-pa = math.radians(orbit_config['arg_perigee_deg'])
-ma = math.radians(orbit_config['mean_anomaly_deg'])
-epoch_py = simulation_start(RUNTIME_CONFIG['start_time'])
-epoch = AbsoluteDate(epoch_py.year, epoch_py.month, epoch_py.day, epoch_py.hour,
-                     epoch_py.minute, epoch_py.second + epoch_py.microsecond / 1e6,
-                     TimeScalesFactory.getUTC())
-
-# Try a coarse sweep over mean anomaly to find a geometry with the best max elevation
-best_ma = 0.0
-best_max_elev = -1e9
-trial_count = 36
-for k in range(trial_count):
-    ma_try = math.radians((360.0 / trial_count) * k)
-    orbit_try = KeplerianOrbit(a, e, i, pa, raan, ma_try, PositionAngleType.MEAN, FramesFactory.getGCRF(), epoch, mu)
-    prop_try = KeplerianPropagator(orbit_try)
-    # sample times and compute max elevation across stations
-    max_elev = -1e9
-    ttmp = 0
-    while ttmp <= PROP_SECONDS:
-        date_tmp = epoch.shiftedBy(ttmp)
-        pv_tmp = prop_try.getPVCoordinates(date_tmp, FramesFactory.getGCRF())
-        pos_tmp = pv_tmp.getPosition()
-        for name, info in station_frames.items():
-            topo_tmp = info["frame"]
-            elev_rad_tmp = topo_tmp.getElevation(pos_tmp, FramesFactory.getGCRF(), date_tmp)
-            elev_deg_tmp = math.degrees(elev_rad_tmp)
-            if elev_deg_tmp > max_elev:
-                max_elev = elev_deg_tmp
-        ttmp += STEP_SECONDS
-    if max_elev > best_max_elev:
-        best_max_elev = max_elev
-        best_ma = ma_try
-
-# Use the best mean anomaly found
-orbit = KeplerianOrbit(a, e, i, pa, raan, best_ma, PositionAngleType.MEAN, FramesFactory.getGCRF(), epoch, mu)
-prop = KeplerianPropagator(orbit)
-print(f"Propagator ready (ma set to {math.degrees(best_ma):.1f}°) - best max elev={best_max_elev:.2f}°")
-# If no station reaches the minimum elevation in the chosen epoch, try shifting the epoch forward
-# in coarse steps (heuristic) to find the next time a pass occurs within 24 hours.
-if best_max_elev < MIN_ELEV_DEG:
-    print(f"No station reaches {MIN_ELEV_DEG}° at the chosen epoch (best {best_max_elev:.2f}°). Searching forward up to 24h...")
-    found = False
-    for shift in range(600, 24*3600 + 1, 600):
-        epoch_try = epoch.shiftedBy(shift)
-        orbit_try = KeplerianOrbit(a, e, i, pa, raan, best_ma, PositionAngleType.MEAN, FramesFactory.getGCRF(), epoch_try, mu)
-        prop_try = KeplerianPropagator(orbit_try)
-        max_elev_try = -1e9
-        ttmp = 0
-        # use a slightly coarser sampling for the search to speed up
-        step_search = max(60, STEP_SECONDS)
-        while ttmp <= PROP_SECONDS:
-            date_tmp = epoch_try.shiftedBy(ttmp)
-            pv_tmp = prop_try.getPVCoordinates(date_tmp, FramesFactory.getGCRF())
-            pos_tmp = pv_tmp.getPosition()
-            for name, info in station_frames.items():
-                topo_tmp = info["frame"]
-                elev_rad_tmp = topo_tmp.getElevation(pos_tmp, FramesFactory.getGCRF(), date_tmp)
-                elev_deg_tmp = math.degrees(elev_rad_tmp)
-                if elev_deg_tmp > max_elev_try:
-                    max_elev_try = elev_deg_tmp
-            ttmp += step_search
-        if max_elev_try >= MIN_ELEV_DEG:
-            print(f"Found a candidate epoch +{shift}s with max elev={max_elev_try:.2f}°; using this epoch.")
-            # recreate main orbit/prop with the found epoch
-            epoch = epoch_try
-            orbit = KeplerianOrbit(a, e, i, pa, raan, best_ma, PositionAngleType.MEAN, FramesFactory.getGCRF(), epoch, mu)
-            prop = KeplerianPropagator(orbit)
-            found = True
-            break
-    if not found:
-        print("Search did not find any passes above the elevation threshold within 24 hours.\nConsider changing orbit elements or lowering MIN_ELEV_DEG.")
-
-
-# ---------------- compute visibility windows by sampling for each station (B2) ----------------
-# We'll sample positions of the satellite in GCRF and transform/evaluate elevation for each station.
-times = []  # list of (t, AbsoluteDate)
-# per-station samples: station_name -> list of dicts {t, date, elev_deg, range_m, pos_gcrf}
+# Shared Orekit orbit: never change the configured orbit merely to force a pass.
+from simulation.propagator import OrekitPropagator, sample_offsets
+from datetime import timedelta
+runtime = OrekitPropagator.from_config(RUNTIME_CONFIG)
+station_frames = {gs['name']: {'frame': runtime.station_frame(gs), 'cfg': gs} for gs in GROUND_STATIONS}
 station_samples = {name: [] for name in station_frames}
-
-t = 0
-while t <= PROP_SECONDS:
-    date = epoch.shiftedBy(t)
-    pv = prop.getPVCoordinates(date, FramesFactory.getGCRF())
-    pos = pv.getPosition()  # Vector3D in GCRF
-    times.append((t, date))
-    # evaluate per-station elevation/range
+for t in sample_offsets(PROP_SECONDS, STEP_SECONDS):
+    timestamp = runtime.start_time + timedelta(seconds=t)
     for name, info in station_frames.items():
-        topo = info["frame"]
-        elev_rad = topo.getElevation(pos, FramesFactory.getGCRF(), date)
-        rng = topo.getRange(pos, FramesFactory.getGCRF(), date)
-        elev_deg = math.degrees(elev_rad)
-        station_samples[name].append({"t": t, "date": date, "elev_deg": elev_deg, "range_m": float(rng)})
-    t += STEP_SECONDS
-
-# derive visibility windows per station
+        geometry = runtime.station_geometry(timestamp, info['frame'])
+        station_samples[name].append({'t': t, 'date': runtime.absolute_date(timestamp), **geometry})
 visibility_windows = {}
-if USE_OREKIT_EVENTS:
-    # Use Orekit ElevationDetector + handler to collect exact rise/set times
-    Action = jpype.JClass("org.hipparchus.ode.events.Action")
-    ElevationDetector = jpype.JClass("org.orekit.propagation.events.ElevationDetector")
-    for name, info in station_frames.items():
-        topo = info["frame"]
-        # Use Orekit's RecordAndContinue handler to capture events without needing a Python callback
-        RecordAndContinue = jpype.JClass("org.orekit.propagation.events.handlers.RecordAndContinue")
-        recorder = RecordAndContinue()
-        # create detector, set min elevation and handler
-        # use a reasonable max check interval (s) to ensure detector finds crossings
-        max_check = max(30.0, float(STEP_SECONDS))
-        det = ElevationDetector(max_check, math.radians(MIN_ELEV_DEG), topo).withHandler(recorder)
-
-        # use a fresh propagator so event detection runs separately per station
-        prop_station = KeplerianPropagator(orbit)
-        prop_station.addEventDetector(det)
-        try:
-            # run propagation which will invoke the handler at events
-            prop_station.propagate(epoch.shiftedBy(PROP_SECONDS))
-        except Exception as e:
-            if VERBOSE:
-                print(f"Event detector propagation error for {name}: {e}")
-
-        # extract events recorded by the recorder
-        events = []
-        try:
-            java_events = recorder.getEvents()
-            # java_events is a java.util.List of RecordAndContinue.Event
-            for je in java_events:
-                st = je.getState()
-                dt = st.getDate()
-                inc = bool(je.isIncreasing())
-                events.append((dt, inc))
-        except Exception:
-            events = []
-
-        # convert events to windows (pair rising (increasing=True) with following setting)
-        # convert dates to seconds-from-epoch for compatibility with the rest of the code
-        ev_secs = [(int(round(d.durationFrom(epoch))), inc) for (d, inc) in events]
-        ev_secs.sort(key=lambda x: x[0])
-        windows = []
-        i = 0
-        while i < len(ev_secs):
-            if ev_secs[i][1]:
-                start_t = ev_secs[i][0]
-                # find next setting (increasing == False)
-                j = i + 1
-                while j < len(ev_secs) and ev_secs[j][1]:
-                    j += 1
-                if j < len(ev_secs):
-                    end_t = ev_secs[j][0]
-                    windows.append({"start_t": start_t, "start_date": epoch.shiftedBy(start_t), "end_t": end_t, "end_date": epoch.shiftedBy(end_t)})
-                    i = j + 1
-                else:
-                    # unmatched rise without a setting; use PROP_SECONDS as end
-                    windows.append({"start_t": start_t, "start_date": epoch.shiftedBy(start_t), "end_t": PROP_SECONDS, "end_date": epoch.shiftedBy(PROP_SECONDS)})
-                    break
-            else:
-                # a setting without prior rising: skip
-                i += 1
-
-        # filter out degenerate windows and clamp to propagation window
-        filtered = []
-        for w in windows:
-            st = int(w["start_t"])
-            ed = int(w["end_t"])
-            if ed <= st:
-                # ignore zero or negative duration
-                continue
-            if st > PROP_SECONDS:
-                continue
-            ed = min(ed, PROP_SECONDS)
-            filtered.append({"start_t": st, "start_date": epoch.shiftedBy(st), "end_t": ed, "end_date": epoch.shiftedBy(ed)})
-        visibility_windows[name] = filtered
-else:
-    # sample-based fallback (previous behavior)
-    for name, samples in station_samples.items():
-        windows = []
-        current = None
-        for s in samples:
-            above = s["elev_deg"] >= MIN_ELEV_DEG
-            if above and current is None:
-                current = {"start_t": s["t"], "start_date": s["date"]}
-            elif (not above) and current is not None:
-                current["end_t"] = s["t"]
-                current["end_date"] = s["date"]
-                windows.append(current)
-                current = None
-        if current is not None:
-            current["end_t"] = PROP_SECONDS
-            current["end_date"] = epoch.shiftedBy(PROP_SECONDS)
-            windows.append(current)
-        visibility_windows[name] = windows
+for name, info in station_frames.items():
+    windows = runtime.contact_windows(runtime.start_time, runtime.start_time + timedelta(seconds=PROP_SECONDS), info['frame'], MIN_ELEV_DEG)
+    visibility_windows[name] = [dict(start_t=(w['start']-runtime.start_time).total_seconds(),
+        end_t=(w['end']-runtime.start_time).total_seconds(),
+        start_date=runtime.absolute_date(w['start']), end_date=runtime.absolute_date(w['end'])) for w in windows]
+print(f'Orekit orbital period: {runtime.period_seconds/60:.3f} minutes')
 
 # print summary of windows
 for name, windows in visibility_windows.items():
@@ -488,5 +262,4 @@ with open(CSV_OUT, "w", newline="") as f:
 print("Comm samples CSV written:", CSV_OUT)
 
 # shutdown JVM
-if jpype.isJVMStarted():
-    jpype.shutdownJVM()
+runtime.shutdown()

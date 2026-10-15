@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Type
 import random
 import heapq
+from itertools import count
+from config import simulation_start
 
 from events.base import Event, EventType, EventSeverity
 from events.environmental import (
@@ -72,6 +74,7 @@ class EventManager:
         """
         self.config = config or EventConfig()
         self.event_queue: List[Event] = []  # Priority queue (heapq)
+        self._event_sequence = count()
         self.active_events: List[Event] = []  # Currently active events
         self.event_history: List[Event] = []  # All past events for logging
         
@@ -214,7 +217,7 @@ class EventManager:
             event: Event to schedule
         """
         # Use heapq for priority queue (events sorted by timestamp)
-        heapq.heappush(self.event_queue, (event.timestamp, event))
+        heapq.heappush(self.event_queue, (event.timestamp, next(self._event_sequence), event))
         self._update_stats(event)
     
     def schedule_eclipse_events(self, 
@@ -251,11 +254,12 @@ class EventManager:
         Returns:
             List of events that occurred this timestep
         """
+        current_time = simulation_start(current_time.isoformat())
         events_occurred = []
         
         # Process events from queue that are due
         while self.event_queue and self.event_queue[0][0] <= current_time:
-            _, event = heapq.heappop(self.event_queue)
+            _, _, event = heapq.heappop(self.event_queue)
             self.active_events.append(event)
             self.event_history.append(event)
             events_occurred.append(event)
@@ -325,6 +329,7 @@ class EventManager:
         history = self.event_history
         
         if since:
+            since = simulation_start(since.isoformat())
             history = [e for e in history if e.timestamp >= since]
         
         if event_type:

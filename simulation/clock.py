@@ -9,6 +9,7 @@ import asyncio
 import time
 from datetime import datetime, timedelta
 from typing import Optional
+from config import simulation_start
 
 
 class SimulationClock:
@@ -25,6 +26,7 @@ class SimulationClock:
             speed_multiplier: Simulation speed (1.0 = real-time, 2.0 = 2x speed)
             time_step: Time step in seconds for each tick
         """
+        start_time = simulation_start(start_time.isoformat())
         self.sim_start_time = start_time
         self.sim_current_time = start_time
         self.wall_start_time = time.time()

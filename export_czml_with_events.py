@@ -23,9 +23,10 @@ import os
 import argparse
 import math
 from config import get_simulation_config
+from simulation.propagator import OrekitPropagator, iso as utc_iso
 
 # Load environment variables
-RUNTIME_CONFIG = get_simulation_config()
+
 
 # Import event system
 sys.path.insert(0, str(Path(__file__).parent))
@@ -500,140 +501,61 @@ def find_satellite_position(event_time: datetime.datetime, sat_positions: List[t
 
 def iso(dt: datetime.datetime) -> str:
     """Convert datetime to ISO8601 string for CZML."""
-    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return utc_iso(dt)
 
 
 def main():
-    """
-    Main function to generate CZML with events.
-    This is a simplified version - in real use, integrate with your full simulation.
-    """
-    print("="*60)
-    print("Enhanced CZML Export with Event Visualization")
-    print("="*60)
-    
-    # For demonstration, create mock satellite positions (replace with actual propagation)
-    epoch = datetime.datetime.utcnow()
-
-    # Allow overriding duration via environment variable or CLI argument
-    parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument('--hours', type=float, help='Duration in hours for CZML (overrides env)')
-    parser.add_argument('--orbit-minutes', type=float, help='Orbital period in minutes (default 90)')
-    args, _ = parser.parse_known_args()
-
-    env_hours = os.getenv('CZML_DURATION_HOURS')
-    hours = None
-    if args.hours is not None:
-        hours = args.hours
-    elif env_hours is not None:
-        try:
-            hours = float(env_hours)
-        except Exception:
-            hours = 1.0
-
-    if hours is None:
-        hours = RUNTIME_CONFIG['duration_seconds'] / 3600
-
-    duration = int(hours * 3600)
-
-    # Step size (seconds)
-    step = RUNTIME_CONFIG['sample_step_seconds']
-
-    # Orbit period (minutes) -> seconds. Use CLI arg > env var > default
-    env_orbit_minutes = os.getenv('ORBIT_PERIOD_MINUTES')
-    if args.orbit_minutes is not None:
-        orbit_period_minutes = args.orbit_minutes
-    elif env_orbit_minutes is not None:
-        try:
-            orbit_period_minutes = float(env_orbit_minutes)
-        except Exception:
-            orbit_period_minutes = 90.0
-    else:
-        orbit_period_minutes = 90.0
-
-    orbit_period_seconds = int(orbit_period_minutes * 60)
-    
-    print("\n[1/4] Generating satellite positions...")
-    sat_positions = []
-    earth_radius = 6378137
-    altitude = 700000
-    orbit_radius = earth_radius + altitude
-    
-    for t in range(0, duration + 1, step):
-        timestamp = epoch + timedelta(seconds=t)
-        # Simple circular orbit (replace with Orekit propagation)
-        # Use orbit period so the satellite completes multiple orbits over the full duration
-        angle = ((t % orbit_period_seconds) / float(orbit_period_seconds)) * (2.0 * math.pi)
-        x = orbit_radius * 0.9659  # cos(15°) * radius
-        y = orbit_radius * 0.2588 * (1 if t % 5400 < 2700 else -1)  # sin(15°)
-        z = orbit_radius * 0.6  # Slight tilt
-
-        # Rotate
-        rot_x = x * math.cos(angle) - y * math.sin(angle)
-        rot_y = x * math.sin(angle) + y * math.cos(angle)
-
-        sat_positions.append((timestamp, rot_x, rot_y, z))
-    
-    print(f"  Generated {len(sat_positions)} position samples")
-    
-    # Generate sample events
-    print("\n[2/4] Generating sample events...")
-    config = EventConfig(
-        solar_flare_rate=3.0,
-        micrometeoroid_rate=2.0,
-        gps_spoofing_rate=1.0,
-        jamming_attack_rate=1.0,
-        laser_dazzle_rate=0.5
-    )
-    
-    manager = EventManager(config=config)
-    state = SatelliteState(timestamp=epoch)
-    
-    # Schedule some events manually for demo
-    from events.environmental import SolarFlare, MicrometeoroidImpact
-    from events.attacks import GPSSpoofing, JammingAttack, LaserDazzle
-    
-    manager.schedule_event(SolarFlare(timestamp=epoch + timedelta(seconds=300), severity=EventSeverity.MEDIUM))
-    manager.schedule_event(MicrometeoroidImpact(timestamp=epoch + timedelta(seconds=600), severity=EventSeverity.HIGH))
-    manager.schedule_event(GPSSpoofing(timestamp=epoch + timedelta(seconds=900), severity=EventSeverity.HIGH))
-    manager.schedule_event(JammingAttack(timestamp=epoch + timedelta(seconds=1200), severity=EventSeverity.CRITICAL))
-    manager.schedule_event(LaserDazzle(timestamp=epoch + timedelta(seconds=1800), severity=EventSeverity.HIGH))
-    manager.schedule_event(SolarFlare(timestamp=epoch + timedelta(seconds=2400), severity=EventSeverity.LOW))
-    
-    # Process all events
-    for t in range(0, duration + 1, step):
-        current_time = epoch + timedelta(seconds=t)
-        manager.update(current_time, state)
-    
-    # Export events
-    event_log = manager.export_event_log()
-    print(f"  Generated {len(event_log)} events")
-    
-    # Create CZML
-    print("\n[3/4] Creating CZML document...")
-    czml = create_czml_document(sat_positions, event_log, duration)
-    print(f"  Created CZML with {len(czml)} packets")
-    
-    # Write to file
-    output_file = Path(RUNTIME_CONFIG['czml_output_file'])
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    print(f"\n[4/4] Writing CZML to {output_file}...")
-    with open(output_file, 'w') as f:
-        json.dump(czml, f, indent=2)
-    
-    print(f"\n✅ CZML file created successfully!")
-    print(f"\nTo view:")
-    viewer_file = RUNTIME_CONFIG['czml_viewer_file']
-    print(f"1. Open {viewer_file} in a web browser")
-    print(f"2. Or upload to https://sandcastle.cesium.com/")
-    print(f"3. Look for event markers:")
-    print(f"   ☀️  Solar Flares (orange glow)")
-    print(f"   💥 Micrometeoroids (impact trails)")
-    print(f"   ⚠️  GPS Spoofing (red cones)")
-    print(f"   🔴 Laser Attacks (red beams)")
-    print(f"   📡 Jamming (red ellipsoids)")
-    print(f"\n" + "="*60)
+    config = get_simulation_config()
+    parser = argparse.ArgumentParser(description='Export Orekit positions and demonstration events')
+    parser.add_argument('--hours', type=float, help='Simulation duration in hours')
+    parser.add_argument('--orbit-minutes', type=float, help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    if args.orbit_minutes is not None or os.getenv('ORBIT_PERIOD_MINUTES'):
+        parser.error('Orbit period is derived from ORBIT_ALTITUDE_KM and the orbital elements; remove --orbit-minutes/ORBIT_PERIOD_MINUTES')
+    try:
+        duration = (args.hours * 3600 if args.hours is not None else
+                    float(os.environ['CZML_DURATION_HOURS']) * 3600 if os.getenv('CZML_DURATION_HOURS') else
+                    config['duration_seconds'])
+        if not math.isfinite(duration) or duration <= 0:
+            raise ValueError('Duration must be finite and positive')
+    except ValueError as exc:
+        parser.error(str(exc))
+    propagator = OrekitPropagator.from_config(config)
+    try:
+        states = propagator.sample_states(duration, config['sample_step_seconds'])
+        epoch = states[0].timestamp
+        sat_positions = [(s.timestamp, *s.position.tolist()) for s in states]
+        print(f'Orekit period: {propagator.period_seconds/60:.3f} minutes')
+        # These remain demonstration events; event physics is tracked in TODO section 3.
+        manager = EventManager(EventConfig(enable_environmental=False, enable_attacks=False))
+        from events.environmental import SolarFlare, MicrometeoroidImpact, EclipseEntry, EclipseExit
+        from events.attacks import GPSSpoofing, JammingAttack, LaserDazzle
+        demonstrations = [(300, SolarFlare, EventSeverity.MEDIUM),
+                          (600, MicrometeoroidImpact, EventSeverity.HIGH),
+                          (900, GPSSpoofing, EventSeverity.HIGH),
+                          (1200, JammingAttack, EventSeverity.CRITICAL),
+                          (1800, LaserDazzle, EventSeverity.HIGH),
+                          (2400, SolarFlare, EventSeverity.LOW)]
+        for offset, event_class, severity in demonstrations:
+            if offset <= duration:
+                manager.schedule_event(event_class(timestamp=epoch+timedelta(seconds=offset), severity=severity))
+        for previous, current in zip(states, states[1:]):
+            if previous.in_eclipse != current.in_eclipse:
+                event_class = EclipseEntry if current.in_eclipse else EclipseExit
+                # Sample-aligned markers; the state itself uses exact Orekit shadow geometry.
+                manager.schedule_event(event_class(timestamp=current.timestamp))
+        for state in states:
+            manager.update(state.timestamp, state)
+        event_log = manager.export_event_log()
+        document = create_czml_document(sat_positions, event_log, duration)
+        output = Path(config['czml_output_file'])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(document, indent=2), encoding='utf-8')
+        print(f'Wrote {len(states)} Orekit samples and {len(event_log)} events to {output}')
+        print(f"Serve the project with python -m http.server 8000, then open {Path(config['czml_viewer_file']).name}")
+    finally:
+        propagator.shutdown()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

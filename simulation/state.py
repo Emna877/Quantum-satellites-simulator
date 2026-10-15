@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, Optional
 import numpy as np
+from config import simulation_start
 
 
 @dataclass
@@ -85,6 +86,9 @@ class SatelliteState:
     last_command_time: Optional[datetime] = None
     last_command_type: str = "NONE"
     
+    def __post_init__(self):
+        self.timestamp = simulation_start(self.timestamp.isoformat())
+
     def to_dict(self) -> dict:
         """Convert state to dictionary for logging."""
         return {
