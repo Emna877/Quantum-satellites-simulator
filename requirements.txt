@@ -12,3 +12,4 @@ websockets
 # qiskit
 # tensorflow
 # torch
+python-dotenv

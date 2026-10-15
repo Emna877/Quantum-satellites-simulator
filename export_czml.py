@@ -6,9 +6,12 @@ import datetime
 import os
 
 # ---------- CONFIG ----------
-JVM_PATH = r"C:\Program Files\Java\jdk-25\bin\server\jvm.dll"
-PROJECT_DIR = Path(r"C:\Users\Emna\Documents\QuantumSatellites").resolve()
-DATA_DIR = PROJECT_DIR / "orekit-data"   # must be unzipped orekit-data folder
+from config import get_simulation_config, validate_runtime_config
+
+RUNTIME_CONFIG = validate_runtime_config(get_simulation_config())
+JVM_PATH = RUNTIME_CONFIG['jvm_path']
+PROJECT_DIR = Path(RUNTIME_CONFIG['project_dir'])
+DATA_DIR = Path(RUNTIME_CONFIG['orekit_data_path'])
 OUT_CSV = PROJECT_DIR / "orbit_positions.csv"
 OUT_CZML = PROJECT_DIR / "cubesat.czml"
 PROP_SECONDS = 3600 # propagation duration in seconds (1 hour)

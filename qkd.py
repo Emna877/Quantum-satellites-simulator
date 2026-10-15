@@ -8,9 +8,12 @@ import statistics
 from math import log10
 
 # ---------------- CONFIG ----------------
-JVM_PATH = r"C:\Program Files\Java\jdk-23\bin\server\jvm.dll"
-PROJECT_DIR = Path(r"D:\programming\python\Quantum-satellites-simulator").resolve()
-DATA_DIR = PROJECT_DIR / "orekit-data"
+from config import get_simulation_config, validate_runtime_config
+
+RUNTIME_CONFIG = validate_runtime_config(get_simulation_config())
+JVM_PATH = RUNTIME_CONFIG['jvm_path']
+PROJECT_DIR = Path(RUNTIME_CONFIG['project_dir'])
+DATA_DIR = Path(RUNTIME_CONFIG['orekit_data_path'])
 PROP_SECONDS = 2 * 3600        # propagate for 2 hours (example)
 STEP_SECONDS = 30              # sample every 30s
 MIN_ELEV_DEG = 5.0             # visibility threshold (deg)

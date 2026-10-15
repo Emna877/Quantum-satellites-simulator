@@ -21,28 +21,51 @@ def load_env_file(env_path: Optional[Path] = None):
         project_root = Path(__file__).parent.parent
         env_path = project_root / ".env"
     
-    if not env_path.exists():
-        print(f"Warning: .env file not found at {env_path}")
-        print("Using default values or environment variables")
-        return
-    
-    with open(env_path, 'r') as f:
-        for line in f:
-            line = line.strip()
-            # Skip comments and empty lines
-            if not line or line.startswith('#'):
-                continue
-            
-            # Parse KEY=VALUE
-            if '=' in line:
-                key, value = line.split('=', 1)
-                key = key.strip()
-                value = value.strip()
-                
-                # Only set if not already in environment
-                if key not in os.environ:
-                    os.environ[key] = value
+    if env_path.exists():
+        from dotenv import load_dotenv
+        load_dotenv(env_path, override=False, encoding="utf-8-sig")
 
+def project_directory() -> Path:
+    """Resolve an optional project override relative to this repository."""
+    root = Path(__file__).resolve().parent.parent
+    value = Path(os.getenv("PROJECT_DIR") or root).expanduser()
+    return (root / value).resolve() if not value.is_absolute() else value.resolve()
+
+
+def resolve_project_path(key: str, default: str) -> Path:
+    value = Path(os.getenv(key) or default).expanduser()
+    return (project_directory() / value).resolve()
+
+
+def validate_runtime_config(config: dict) -> dict:
+    """Validate settings and discover Java without starting its JVM."""
+    import math
+    try:
+        import jpype
+    except ImportError as exc:
+        raise RuntimeError("JPype is missing. Install requirements.txt using your active Python.") from exc
+    for key in ("time_step", "speed_multiplier"):
+        if not math.isfinite(config[key]) or config[key] <= 0:
+            raise ValueError(f"{key} must be finite and greater than zero")
+    orbit = config["orbit"]
+    if not math.isfinite(orbit["semi_major_axis"]) or orbit["semi_major_axis"] <= 6378137:
+        raise ValueError("ORBIT_ALTITUDE_KM must be finite and positive")
+    if not 0 <= orbit["eccentricity"] < 1:
+        raise ValueError("ORBIT_ECCENTRICITY must be in [0, 1)")
+    if not 0 <= orbit["inclination_deg"] <= 180:
+        raise ValueError("ORBIT_INCLINATION_DEG must be in [0, 180]")
+    if not Path(config["orekit_data_path"]).is_dir():
+        raise ValueError("OREKIT_DATA_PATH must point to the extracted Orekit data directory")
+    jars = list(Path(config.get("project_dir", project_directory())).glob("*.jar"))
+    if not any(p.name.startswith("orekit-") for p in jars) or not any(p.name.startswith("hipparchus-core-") for p in jars):
+        raise ValueError("Place Orekit and Hipparchus JARs in PROJECT_DIR")
+    try:
+        config["jvm_path"] = config.get("jvm_path") or jpype.getDefaultJVMPath()
+    except Exception as exc:
+        raise ValueError("Java was not found. Set JAVA_HOME or JVM_PATH.") from exc
+    if not Path(config["jvm_path"]).is_file():
+        raise ValueError("JVM_PATH must point to the JVM shared library (Windows: bin/server/jvm.dll)")
+    return config
 
 def get_simulation_config() -> dict:
     """
@@ -63,9 +86,9 @@ def get_simulation_config() -> dict:
     
     config = {
         # Paths
-        "jvm_path": os.getenv('JVM_PATH', r"C:\Program Files\Java\jdk-23\bin\server\jvm.dll"),
-        "project_dir": os.getenv('PROJECT_DIR', str(Path(__file__).parent.parent)),
-        "orekit_data_path": os.getenv('OREKIT_DATA_PATH', ''),
+        "jvm_path": os.getenv('JVM_PATH') or None,
+        "project_dir": str(project_directory()),
+        "orekit_data_path": str(resolve_project_path('OREKIT_DATA_PATH', 'orekit-data/orekit-data-main')),
         
         # Simulation timing
         "start_time": os.getenv('SIM_START_TIME', '2025-11-09T12:00:00Z'),
@@ -85,8 +108,8 @@ def get_simulation_config() -> dict:
         # Logging
         "log_telemetry": os.getenv('LOG_TELEMETRY', 'true').lower() == 'true',
         "log_events": os.getenv('LOG_EVENTS', 'true').lower() == 'true',
-        "telemetry_file": os.getenv('TELEMETRY_FILE', 'data/telemetry.csv'),
-        "events_file": os.getenv('EVENTS_FILE', 'data/events.json'),
+        "telemetry_file": str(resolve_project_path('TELEMETRY_FILE', 'data/telemetry.csv')),
+        "events_file": str(resolve_project_path('EVENTS_FILE', 'data/events.json')),
         
         # Streaming
         "enable_streaming": os.getenv('ENABLE_STREAMING', 'false').lower() == 'true',

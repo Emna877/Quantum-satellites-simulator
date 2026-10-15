@@ -2,6 +2,32 @@
 
 A real-time satellite simulation with event system and 3D visualization for quantum key distribution (QKD) satellites.
 
+## Runtime setup and compatibility check
+
+Configuration is shared by the engine, the Orekit exporter, and the communication example.
+Copy `.env.template` to `.env` only if you need overrides. Existing environment variables
+have precedence. Relative paths are resolved against the project directory, not your terminal directory.
+The default Orekit data folder is `orekit-data/orekit-data-main`. Keep the bundled Orekit
+13.1.2 and Hipparchus 4.0.2 JARs together in the project root. Java is discovered by JPype;
+set `JAVA_HOME` or explicitly set `JVM_PATH` to the JVM shared library if discovery fails.
+
+From the project root, using your working Python environment:
+
+```powershell
+python -m scripts.check_runtime
+python export_czml.py
+python -m http.server 8000
+```
+
+Open `http://localhost:8000/czml_viewer.html` for the Orekit orbit export.
+Run `python qkd.py` for the separate communication calculation example.
+The enhanced exporter still uses mock positions until checklist section 2 is completed.
+
+Verification status: Java 25 was detected. The compatibility check has not passed in the
+assistant session because its Python executable fails before imports with an `encodings`
+startup error. Run the checker with the repaired Python environment; a successful run prints
+`PASS` and exits with code 0. No installation or Python configuration was changed here.
+See [TODO.md](TODO.md) for the full implementation checklist.
 ## 🚀 Quick Start
 
 ### 1. Setup Environment

@@ -58,8 +58,9 @@ class OrekitPropagator:
             return
         
         # Find all JAR files in project directory
-        project_dir = Path(__file__).parent.parent
-        jars = [str(p) for p in project_dir.rglob("*.jar")]
+        from config import project_directory
+        project_dir = project_directory()
+        jars = [str(p) for p in project_dir.glob("*.jar")]
         
         if not jars:
             raise RuntimeError(f"No JAR files found in {project_dir}. Ensure Orekit and Hipparchus JARs are present.")

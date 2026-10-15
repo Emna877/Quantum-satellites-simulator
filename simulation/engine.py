@@ -34,7 +34,8 @@ class SimulationEngine:
         Args:
             config: Configuration dictionary with simulation parameters
         """
-        self.config = config
+        from config import validate_runtime_config
+        self.config = validate_runtime_config(config)
         
         # Core components (will be initialized in setup())
         self.clock: Optional[SimulationClock] = None
@@ -254,27 +255,8 @@ async def main():
     """
     Example main function to run simulation.
     """
-    # Example configuration
-    config = {
-        # Orekit setup
-        "jvm_path": r"C:\Program Files\Java\jdk-25\bin\server\jvm.dll",
-        "orekit_data_path": r"D:\programming\python\Quantum-satellites-simulator\orekit-data\orekit-data-main",
-        
-        # Simulation timing
-        "start_time": "2025-11-09T12:00:00Z",
-        "time_step": 1.0,  # 1 second per tick
-        "speed_multiplier": 1.0,  # Real-time
-        
-        # Orbital elements
-        "orbit": {
-            "semi_major_axis": 6378137 + 700e3,  # 700 km altitude
-            "eccentricity": 0.0,
-            "inclination_deg": 98.0,
-            "raan_deg": 10.0,
-            "arg_perigee_deg": 0.0,
-            "mean_anomaly_deg": 0.0,
-        }
-    }
+    from config import get_simulation_config
+    config = get_simulation_config()
     
     engine = SimulationEngine(config)
     engine.setup()
