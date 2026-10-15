@@ -4,15 +4,15 @@ Goal: compare classical and QKD-assisted satellite communication security using 
 
 ## 1. Setup and configuration
 
-- [ ] Verify Java, JPype, Orekit, and Hipparchus work together.
-- [ ] Replace hardcoded machine-specific paths with shared configuration.
+- [x] Verify Java, JPype, Orekit, and Hipparchus work together.
+- [x] Replace hardcoded machine-specific paths with shared configuration.
 - [x] Use project-relative defaults for data and telemetry/event output folders.
-- [ ] Provide clear errors for missing dependencies or invalid settings.
-- [ ] Document verified installation and execution commands.
+- [x] Provide clear errors for missing dependencies or invalid settings.
+- [x] Document verified installation and execution commands.
 
 Python repair, creation of a clean environment, and installation of python-dotenv are already completed by the user and excluded from this checklist.
 
-Progress: added shared runtime paths and validation for the engine, Orekit exporter, and communication example, plus `python -m scripts.check_runtime`. Java 25 was detected. Full compatibility verification remains pending because the Python executable available to this session fails at startup. Broader configuration consolidation and executed validation are still pending.
+Verified: Python 3.13.7 and JPype 1.7.1 load Java 25, Orekit 13.1.2, Hipparchus 4.0.2, and Orekit data; 60-second propagation passes. Shared paths, orbit/time/export settings, validation, and setup documentation are implemented. Five configuration regression tests pass, Python compilation passes, and the Orekit CSV/CZML exporter runs successfully. The interpreter prefix warning still appears but does not prevent execution.
 
 ## 2. Make Orekit the single source of satellite motion
 

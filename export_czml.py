@@ -6,16 +6,16 @@ import datetime
 import os
 
 # ---------- CONFIG ----------
-from config import get_simulation_config, validate_runtime_config
+from config import get_simulation_config, validate_runtime_config, simulation_start
 
 RUNTIME_CONFIG = validate_runtime_config(get_simulation_config())
 JVM_PATH = RUNTIME_CONFIG['jvm_path']
 PROJECT_DIR = Path(RUNTIME_CONFIG['project_dir'])
 DATA_DIR = Path(RUNTIME_CONFIG['orekit_data_path'])
-OUT_CSV = PROJECT_DIR / "orbit_positions.csv"
-OUT_CZML = PROJECT_DIR / "cubesat.czml"
-PROP_SECONDS = 3600 # propagation duration in seconds (1 hour)
-STEP_SECONDS = 30             # sampling step (s)
+OUT_CSV = Path(RUNTIME_CONFIG['orbit_csv_file'])
+OUT_CZML = Path(RUNTIME_CONFIG['orbit_czml_file'])
+PROP_SECONDS = RUNTIME_CONFIG['duration_seconds']
+STEP_SECONDS = RUNTIME_CONFIG['sample_step_seconds']
 # satellite visual properties
 SAT_NAME = "CubeSat-1"
 # ----------------------------
@@ -25,7 +25,7 @@ def iso(dt):
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 # 1) collect JARs and start JVM
-jars = [str(p) for p in PROJECT_DIR.rglob("*.jar")]
+jars = [str(p) for p in PROJECT_DIR.glob("*.jar")]
 if not jars:
     raise SystemExit("No JARs found in project folder. Put orekit + hipparchus jars here.")
 if not jpype.isJVMStarted():
@@ -54,14 +54,17 @@ print("Orekit data loaded.")
 # 4) define a circular LEO CubeSat orbit (700 km alt)
 earth_radius = Constants.WGS84_EARTH_EQUATORIAL_RADIUS
 mu = Constants.WGS84_EARTH_MU
-alt = 700e3
-a = earth_radius + alt
-e = 0.0
-i = math.radians(98.0)   # inclination
-raan = 0.0
-pa = 0.0
-ma = 0.0
-epoch = AbsoluteDate(2025, 10, 29, 0, 0, 0.0, TimeScalesFactory.getUTC())
+orbit_config = RUNTIME_CONFIG['orbit']
+a = orbit_config['semi_major_axis']
+e = orbit_config['eccentricity']
+i = math.radians(orbit_config['inclination_deg'])
+raan = math.radians(orbit_config['raan_deg'])
+pa = math.radians(orbit_config['arg_perigee_deg'])
+ma = math.radians(orbit_config['mean_anomaly_deg'])
+epoch_py = simulation_start(RUNTIME_CONFIG['start_time'])
+epoch = AbsoluteDate(epoch_py.year, epoch_py.month, epoch_py.day, epoch_py.hour,
+                     epoch_py.minute, epoch_py.second + epoch_py.microsecond / 1e6,
+                     TimeScalesFactory.getUTC())
 
 orbit = KeplerianOrbit(a, e, i, pa, raan, ma, PositionAngleType.MEAN, FramesFactory.getGCRF(), epoch, mu)
 prop = KeplerianPropagator(orbit)
@@ -78,7 +81,7 @@ samples = []
 times_iso = []
 t = 0
 # define epoch_py once
-epoch_py = datetime.datetime(2025, 10, 29, 0, 0, 0)  # match epoch above
+ # epoch_py is read from shared configuration above
 while t <= PROP_SECONDS:
     date = epoch.shiftedBy(t)
     # inertial frame positions
@@ -105,6 +108,7 @@ while t <= PROP_SECONDS:
 
 # 7) write CSV
 import csv
+OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
 with open(OUT_CSV, "w", newline="") as f:
     w = csv.writer(f)
     w.writerow(["t_s", "x_m", "y_m", "z_m", "lat_deg", "lon_deg", "alt_m"])
@@ -177,6 +181,7 @@ sat_packet["position"]["cartesian"] = cartesian_samples
 czml.append(sat_packet)
 
 # write CZML
+OUT_CZML.parent.mkdir(parents=True, exist_ok=True)
 with open(OUT_CZML, "w", newline="") as f:
     json.dump(czml, f, indent=2)
 print("CZML written:", OUT_CZML)

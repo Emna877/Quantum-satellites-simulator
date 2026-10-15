@@ -22,10 +22,10 @@ import sys
 import os
 import argparse
 import math
-from dotenv import load_dotenv
+from config import get_simulation_config
 
 # Load environment variables
-load_dotenv()
+RUNTIME_CONFIG = get_simulation_config()
 
 # Import event system
 sys.path.insert(0, str(Path(__file__).parent))
@@ -532,12 +532,12 @@ def main():
             hours = 1.0
 
     if hours is None:
-        hours = 1.0  # default 1 hour
+        hours = RUNTIME_CONFIG['duration_seconds'] / 3600
 
     duration = int(hours * 3600)
 
     # Step size (seconds)
-    step = int(os.getenv('CZML_STEP_SECONDS', '30'))
+    step = RUNTIME_CONFIG['sample_step_seconds']
 
     # Orbit period (minutes) -> seconds. Use CLI arg > env var > default
     env_orbit_minutes = os.getenv('ORBIT_PERIOD_MINUTES')
@@ -615,15 +615,15 @@ def main():
     print(f"  Created CZML with {len(czml)} packets")
     
     # Write to file
-    output_filename = os.getenv('CZML_OUTPUT_FILE', 'cubesat_with_events.czml')
-    output_file = Path(__file__).parent / output_filename
+    output_file = Path(RUNTIME_CONFIG['czml_output_file'])
+    output_file.parent.mkdir(parents=True, exist_ok=True)
     print(f"\n[4/4] Writing CZML to {output_file}...")
     with open(output_file, 'w') as f:
         json.dump(czml, f, indent=2)
     
     print(f"\n✅ CZML file created successfully!")
     print(f"\nTo view:")
-    viewer_file = os.getenv('CZML_VIEWER_FILE', 'czml_viewer_enhanced.html')
+    viewer_file = RUNTIME_CONFIG['czml_viewer_file']
     print(f"1. Open {viewer_file} in a web browser")
     print(f"2. Or upload to https://sandcastle.cesium.com/")
     print(f"3. Look for event markers:")

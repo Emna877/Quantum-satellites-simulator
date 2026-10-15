@@ -19,6 +19,7 @@ import json
 sys.path.insert(0, str(Path(__file__).parent))
 
 from simulation.engine import SimulationEngine
+from config import get_simulation_config
 from simulation.state import SatelliteState
 from events.manager import EventManager, EventConfig
 from events.base import EventType, EventSeverity
@@ -285,10 +286,11 @@ async def test_simulation_integration():
     print("TEST 6: Full Simulation Integration (2 minutes)")
     print("="*60)
     
+    runtime_config = get_simulation_config()
     # Configure simulation with event system
     config = {
-        "jvm_path": r"C:\Program Files\Java\jdk-25\bin\server\jvm.dll",
-        "orekit_data_path": r"D:\programming\python\Quantum-satellites-simulator\orekit-data\orekit-data-main",
+        "jvm_path": runtime_config["jvm_path"],
+        "orekit_data_path": runtime_config["orekit_data_path"],
         "start_time": datetime.utcnow().isoformat(),
         "time_step": 1.0,
         "speed_multiplier": 10.0,  # 10x speed for faster testing

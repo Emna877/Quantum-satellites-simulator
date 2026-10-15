@@ -7,12 +7,14 @@ from pathlib import Path
 def main():
     propagator = None
     try:
-        from config import get_simulation_config, validate_runtime_config
+        from config import get_simulation_config, validate_runtime_config, simulation_start
         from simulation.propagator import OrekitPropagator
         config = validate_runtime_config(get_simulation_config())
+        print(f"Python: {sys.executable}")
+        print(f"Selected JVM: {config['jvm_path']}")
         propagator = OrekitPropagator(config['jvm_path'], Path(config['orekit_data_path']))
         propagator.create_propagator_from_keplerian(
-            epoch=datetime(2025, 10, 29, tzinfo=timezone.utc),
+            epoch=simulation_start(config['start_time']),
             **config['orbit'],
         )
         import numpy as np

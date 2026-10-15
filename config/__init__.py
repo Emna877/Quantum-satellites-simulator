@@ -8,6 +8,87 @@ and .env files, with fallback to sensible defaults.
 import os
 from pathlib import Path
 from typing import Optional
+import re
+import shutil
+import subprocess
+import math
+from datetime import datetime, timezone
+
+
+def number(key, default, integer=False):
+    raw = os.getenv(key) or str(default)
+    try:
+        value = int(raw) if integer else float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{key} must be {'an integer' if integer else 'a number'}, got {raw!r}") from exc
+    if not math.isfinite(value):
+        raise ValueError(f"{key} must be finite")
+    return value
+
+
+def simulation_start(value):
+    try:
+        result = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("SIM_START_TIME must be an ISO date, e.g. 2025-11-09T12:00:00Z") from exc
+    if result.tzinfo is None:
+        result = result.replace(tzinfo=timezone.utc)
+    return result.astimezone(timezone.utc)
+
+
+def java_major_version(jvm_path: Path) -> int:
+    """Read the selected installation's version, not an unrelated PATH Java."""
+    for parent in jvm_path.parents:
+        release = parent / "release"
+        if release.is_file():
+            match = re.search(r'JAVA_VERSION="([^"]+)"', release.read_text(encoding="utf-8"))
+            if match:
+                parts = match.group(1).split(".")
+                return int(parts[1] if parts[0] == "1" else parts[0])
+    executable = jvm_path.parent.parent / ("java.exe" if os.name == "nt" else "java")
+    if not executable.is_file():
+        raise ValueError(f"Cannot determine Java version for {jvm_path}")
+    result = subprocess.run([str(executable), "-version"], capture_output=True, text=True, timeout=10)
+    match = re.search(r'version "(?:1\.)?(\d+)', result.stderr + result.stdout)
+    if not match:
+        raise ValueError(f"Cannot determine Java version for {jvm_path}")
+    return int(match.group(1))
+
+
+def discover_jvm(explicit=None) -> str:
+    """Honor overrides; otherwise choose a modern Java rather than registry Java 8."""
+    import jpype
+    suffixes = ("bin/server/jvm.dll", "lib/server/libjvm.so", "lib/server/libjvm.dylib")
+    def libraries(home):
+        return [Path(home) / suffix for suffix in suffixes]
+    if explicit:
+        candidates = [Path(explicit).expanduser()]
+    elif os.getenv("JAVA_HOME"):
+        candidates = libraries(os.environ["JAVA_HOME"])
+    else:
+        candidates = []
+        java = shutil.which("java")
+        if java:
+            candidates.extend(libraries(Path(java).resolve().parent.parent))
+        if os.name == "nt":
+            for folder in ("Java", "Eclipse Adoptium", "Microsoft", "Amazon Corretto"):
+                root = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / folder
+                if root.is_dir():
+                    for home in root.iterdir():
+                        candidates.extend(libraries(home))
+        try:
+            candidates.append(Path(jpype.getDefaultJVMPath()))
+        except Exception:
+            pass
+    usable = []
+    for candidate in candidates:
+        if candidate.is_file():
+            version = java_major_version(candidate)
+            if version >= 9:
+                usable.append((version, str(candidate.resolve())))
+    if not usable:
+        raise ValueError("No Java 9+ JVM found. Set JVM_PATH to a modern JVM library or JAVA_HOME to its installation; remove obsolete Java 8 overrides.")
+    return max(usable)[1]
 
 
 def load_env_file(env_path: Optional[Path] = None):
@@ -54,17 +135,19 @@ def validate_runtime_config(config: dict) -> dict:
         raise ValueError("ORBIT_ECCENTRICITY must be in [0, 1)")
     if not 0 <= orbit["inclination_deg"] <= 180:
         raise ValueError("ORBIT_INCLINATION_DEG must be in [0, 180]")
+    for key in ('raan_deg', 'arg_perigee_deg', 'mean_anomaly_deg'):
+        if not math.isfinite(orbit[key]):
+            raise ValueError(f"{key} must be finite")
+    if orbit['semi_major_axis'] * (1 - orbit['eccentricity']) <= 6378137:
+        raise ValueError('Orbit perigee must be above the Earth surface; check altitude and eccentricity')
     if not Path(config["orekit_data_path"]).is_dir():
         raise ValueError("OREKIT_DATA_PATH must point to the extracted Orekit data directory")
+    if not any(Path(config['orekit_data_path']).rglob('tai-utc.dat')):
+        raise ValueError('OREKIT_DATA_PATH has no tai-utc.dat; use the extracted Orekit data bundle')
     jars = list(Path(config.get("project_dir", project_directory())).glob("*.jar"))
     if not any(p.name.startswith("orekit-") for p in jars) or not any(p.name.startswith("hipparchus-core-") for p in jars):
         raise ValueError("Place Orekit and Hipparchus JARs in PROJECT_DIR")
-    try:
-        config["jvm_path"] = config.get("jvm_path") or jpype.getDefaultJVMPath()
-    except Exception as exc:
-        raise ValueError("Java was not found. Set JAVA_HOME or JVM_PATH.") from exc
-    if not Path(config["jvm_path"]).is_file():
-        raise ValueError("JVM_PATH must point to the JVM shared library (Windows: bin/server/jvm.dll)")
+    config["jvm_path"] = discover_jvm(config.get("jvm_path"))
     return config
 
 def get_simulation_config() -> dict:
@@ -81,7 +164,7 @@ def get_simulation_config() -> dict:
     EARTH_RADIUS = 6378137.0  # WGS84 in meters
     
     # Parse altitude and convert to semi-major axis
-    altitude_km = float(os.getenv('ORBIT_ALTITUDE_KM', '700'))
+    altitude_km = number('ORBIT_ALTITUDE_KM', 700)
     semi_major_axis = EARTH_RADIUS + (altitude_km * 1000)
     
     config = {
@@ -92,17 +175,17 @@ def get_simulation_config() -> dict:
         
         # Simulation timing
         "start_time": os.getenv('SIM_START_TIME', '2025-11-09T12:00:00Z'),
-        "time_step": float(os.getenv('SIM_TIME_STEP', '1.0')),
-        "speed_multiplier": float(os.getenv('SIM_SPEED_MULTIPLIER', '1.0')),
+        "time_step": number('SIM_TIME_STEP', 1),
+        "speed_multiplier": number('SIM_SPEED_MULTIPLIER', 1),
         
         # Orbital elements
         "orbit": {
             "semi_major_axis": semi_major_axis,
-            "eccentricity": float(os.getenv('ORBIT_ECCENTRICITY', '0.0')),
-            "inclination_deg": float(os.getenv('ORBIT_INCLINATION_DEG', '98.0')),
-            "raan_deg": float(os.getenv('ORBIT_RAAN_DEG', '10.0')),
-            "arg_perigee_deg": float(os.getenv('ORBIT_ARG_PERIGEE_DEG', '0.0')),
-            "mean_anomaly_deg": float(os.getenv('ORBIT_MEAN_ANOMALY_DEG', '0.0')),
+            "eccentricity": number('ORBIT_ECCENTRICITY', 0),
+            "inclination_deg": number('ORBIT_INCLINATION_DEG', 98),
+            "raan_deg": number('ORBIT_RAAN_DEG', 10),
+            "arg_perigee_deg": number('ORBIT_ARG_PERIGEE_DEG', 0),
+            "mean_anomaly_deg": number('ORBIT_MEAN_ANOMALY_DEG', 0),
         },
         
         # Logging
@@ -114,9 +197,21 @@ def get_simulation_config() -> dict:
         # Streaming
         "enable_streaming": os.getenv('ENABLE_STREAMING', 'false').lower() == 'true',
         "websocket_host": os.getenv('WEBSOCKET_HOST', 'localhost'),
-        "websocket_port": int(os.getenv('WEBSOCKET_PORT', '8080')),
+        "websocket_port": number('WEBSOCKET_PORT', 8080, integer=True),
+        "duration_seconds": number('CZML_DEFAULT_DURATION_SECONDS', 3600, integer=True),
+        "sample_step_seconds": number('CZML_STEP_SECONDS', 30, integer=True),
+        "orbit_csv_file": str(resolve_project_path('ORBIT_CSV_FILE', 'orbit_positions.csv')),
+        "orbit_czml_file": str(resolve_project_path('ORBIT_CZML_FILE', 'cubesat.czml')),
+        "comm_csv_file": str(resolve_project_path('COMM_CSV_FILE', 'comm_samples.csv')),
+        "czml_output_file": str(resolve_project_path('CZML_OUTPUT_FILE', 'cubesat_with_events.czml')),
+        "czml_viewer_file": str(resolve_project_path('CZML_VIEWER_FILE', 'czml_viewer_enhanced.html')),
     }
-    
+    simulation_start(config['start_time'])
+    for key in ('time_step', 'speed_multiplier', 'duration_seconds', 'sample_step_seconds'):
+        if config[key] <= 0:
+            raise ValueError(f"{key} must be greater than zero")
+    if not 1 <= config['websocket_port'] <= 65535:
+        raise ValueError('WEBSOCKET_PORT must be between 1 and 65535')
     return config
 
 

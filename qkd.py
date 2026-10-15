@@ -8,14 +8,14 @@ import statistics
 from math import log10
 
 # ---------------- CONFIG ----------------
-from config import get_simulation_config, validate_runtime_config
+from config import get_simulation_config, validate_runtime_config, simulation_start
 
 RUNTIME_CONFIG = validate_runtime_config(get_simulation_config())
 JVM_PATH = RUNTIME_CONFIG['jvm_path']
 PROJECT_DIR = Path(RUNTIME_CONFIG['project_dir'])
 DATA_DIR = Path(RUNTIME_CONFIG['orekit_data_path'])
-PROP_SECONDS = 2 * 3600        # propagate for 2 hours (example)
-STEP_SECONDS = 30              # sample every 30s
+PROP_SECONDS = RUNTIME_CONFIG['duration_seconds']
+STEP_SECONDS = RUNTIME_CONFIG['sample_step_seconds']
 MIN_ELEV_DEG = 5.0             # visibility threshold (deg)
 SAT_NAME = "CubeSat-1"
 
@@ -81,7 +81,7 @@ def shannon_capacity_bps(bw_hz, snr_linear):
     return bw_hz * math.log2(1.0 + snr_linear)
 
 # ---------------- start JVM & Orekit ----------------
-jars = [str(p) for p in PROJECT_DIR.rglob("*.jar")]
+jars = [str(p) for p in PROJECT_DIR.glob("*.jar")]
 if not jars:
     raise SystemExit("No JARs found in project folder. Put orekit + hipparchus jars here.")
 if not jpype.isJVMStarted():
@@ -127,15 +127,17 @@ print(f"Created {len(station_frames)} ground station frame(s).")
 # ---------------- create orbit ----------------
 earth_radius = Constants.WGS84_EARTH_EQUATORIAL_RADIUS
 mu = Constants.WGS84_EARTH_MU
-alt = 700e3
-a = earth_radius + alt
-e = 0.0
-i = math.radians(98.0)
-# Set RAAN to roughly align orbit ascending node with the first ground station longitude
-# This helps produce at least one visibility window for example runs. Users can override.
-raan = math.radians(GROUND_STATIONS[0]["lon_deg"]) if GROUND_STATIONS else 0.0
-pa = 0.0
-epoch = AbsoluteDate(2025, 10, 29, 0, 0, 0.0, TimeScalesFactory.getUTC())
+orbit_config = RUNTIME_CONFIG['orbit']
+a = orbit_config['semi_major_axis']
+e = orbit_config['eccentricity']
+i = math.radians(orbit_config['inclination_deg'])
+raan = math.radians(orbit_config['raan_deg'])
+pa = math.radians(orbit_config['arg_perigee_deg'])
+ma = math.radians(orbit_config['mean_anomaly_deg'])
+epoch_py = simulation_start(RUNTIME_CONFIG['start_time'])
+epoch = AbsoluteDate(epoch_py.year, epoch_py.month, epoch_py.day, epoch_py.hour,
+                     epoch_py.minute, epoch_py.second + epoch_py.microsecond / 1e6,
+                     TimeScalesFactory.getUTC())
 
 # Try a coarse sweep over mean anomaly to find a geometry with the best max elevation
 best_ma = 0.0
@@ -456,7 +458,8 @@ for name, arr in qkd_results.items():
     print(f" {name} t={best['t']}s elev={best['elev_deg']:.1f}° range={best['range_m']/1000:.2f} km key_rate={best['key_rate']:.3f} Hz QBER={best['qber']:.4f}")
 
 # write CSV with per-sample per-station classical + QKD metrics
-CSV_OUT = PROJECT_DIR / "comm_samples.csv"
+CSV_OUT = Path(RUNTIME_CONFIG['comm_csv_file'])
+CSV_OUT.parent.mkdir(parents=True, exist_ok=True)
 with open(CSV_OUT, "w", newline="") as f:
     writer = csv.writer(f)
     writer.writerow(["station", "t_s", "elev_deg", "range_m", "Pr_dBm", "snr_dB", "capacity_Mbps", "qkd_key_rate_Hz", "qkd_qber"])
