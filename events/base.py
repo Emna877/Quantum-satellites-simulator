@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, Any, Optional
 import uuid
+import math
+from datetime import timedelta
 from config import simulation_start
 
 
@@ -77,8 +79,10 @@ class Event:
         self.ground_truth_label = 1 if self.is_attack else 0
         
         # Ensure duration is non-negative
-        if self.duration_seconds < 0:
-            self.duration_seconds = 0.0
+        if not math.isfinite(self.duration_seconds) or self.duration_seconds < 0:
+            raise ValueError('Event duration must be finite and nonnegative')
+        if any(not isinstance(v, (int, float)) or not math.isfinite(v) for v in self.parameters.values()):
+            raise ValueError('Event parameters must be finite numbers')
         
         # Generate description if not provided
         if not self.description:
@@ -111,16 +115,59 @@ class Event:
             'ground_truth_label': self.ground_truth_label
         }
     
-    def apply_to_state(self, state: Any) -> None:
-        """
-        Apply event effects to satellite state.
-        
-        Override this method in subclasses to implement specific effects.
-        
-        Args:
-            state: SatelliteState object to modify
-        """
-        raise NotImplementedError("Subclasses must implement apply_to_state()")
+    def integrated_strength(self, start, end):
+        """Exact integral of the linearly decaying envelope over an interval."""
+        if self.duration_seconds == 0:
+            return 0.0
+        a = max(0.0, (start-self.timestamp).total_seconds())
+        b = min(self.duration_seconds, (end-self.timestamp).total_seconds())
+        if b <= a:
+            return 0.0
+        return (b-a)-(b*b-a*a)/(2*self.duration_seconds)
+
+    def configure(self, defaults):
+        unknown = set(self.parameters)-set(defaults)
+        if unknown:
+            raise ValueError(f'Unsupported {self.event_type.value} parameters: {sorted(unknown)}')
+        values = {**defaults, **self.parameters}
+        for key, value in values.items():
+            if not isinstance(value, (int,float)) or not math.isfinite(value) or (key != 'direction' and value < 0):
+                raise ValueError(f'{key} must be finite and nonnegative')
+            if key.endswith('_fraction') and value > 1:
+                raise ValueError(f'{key} must be between 0 and 1')
+        return values
+
+    def rates(self, state):
+        """Persistent state changes per second at peak envelope strength."""
+        return {}
+
+    def temporary_effects(self, timestamp):
+        """Return {field: (additive offset, multiplicative factor)}."""
+        return {}
+
+    def impulse(self, state):
+        raise NotImplementedError(f'No impulse model for {self.event_type.value}')
+
+    def integrate(self, state, start, end):
+        strength = self.integrated_strength(start, end)
+        if strength <= 0:
+            return
+        for field, rate in self.rates(state).items():
+            value = getattr(state, field)+rate*strength
+            if field in ('battery_percent', 'component_health_pct'):
+                value = max(0.0, min(100.0, value))
+            setattr(state, field, value)
+
+    def apply_to_state(self, state: Any, dt_seconds=1.0) -> None:
+        """One-off convenience operation. Use EventManager for lifecycle/expiry."""
+        if not math.isfinite(dt_seconds) or dt_seconds < 0:
+            raise ValueError('Event dt must be finite and nonnegative')
+        if self.duration_seconds == 0:
+            self.impulse(state)
+        else:
+            self.integrate(state, state.timestamp-timedelta(seconds=dt_seconds), state.timestamp)
+            for field, (offset, factor) in self.temporary_effects(state.timestamp).items():
+                setattr(state, field, getattr(state, field)*factor+offset)
     
     def is_active(self, current_time: datetime) -> bool:
         """
@@ -138,7 +185,7 @@ class Event:
         
         current_time = simulation_start(current_time.isoformat())
         elapsed = (current_time - self.timestamp).total_seconds()
-        return 0 <= elapsed <= self.duration_seconds
+        return 0 <= elapsed < self.duration_seconds
     
     def get_effect_multiplier(self, current_time: datetime) -> float:
         """

@@ -30,24 +30,26 @@ Verified: all four entry points use the shared two-body Orekit wrapper. Circular
 
 ## 3. Simulation engine and events
 
-- [ ] Define one reusable step(dt) operation.
-- [ ] Support fast offline runs and paced execution using the same operation.
-- [ ] Make pause stop state updates and propagation.
-- [ ] Fix timing when simulation speed changes.
-- [ ] Apply instantaneous events exactly once.
+- [x] Define one reusable step(dt) operation.
+- [x] Support fast offline runs and paced execution using the same operation.
+- [x] Make pause stop state updates and propagation.
+- [x] Fix timing when simulation speed changes.
+- [x] Apply instantaneous events exactly once.
 - [x] Support events with identical timestamps.
 - [x] Advance the state timestamp before evaluating event effects.
-- [ ] Scale event probabilities and accumulated effects with elapsed time.
-- [ ] Fix the missing external_temp_c attribute.
-- [ ] Separate temporary disturbances from permanent damage.
-- [ ] Make event-application failures visible.
-- [ ] Remove unused event parameters or connect them to behavior.
+- [x] Scale event probabilities and accumulated effects with elapsed time.
+- [x] Fix the missing external_temp_c attribute.
+- [x] Separate temporary disturbances from permanent damage.
+- [x] Make event-application failures visible.
+- [x] Remove unused event parameters or connect them to behavior.
+
+Verified: step(dt) is shared by offline and paced execution. Pause freezes physics, speed changes preserve the wall/simulation-time mapping, impulses apply once, and duration envelopes integrate over elapsed seconds, even across large steps. Temporary modifiers restore their baselines; damage, heat, consumed battery, and accumulated dose persist. Seeded Poisson arrivals are independent of update partitioning. Failed updates roll back state/queue and raise an identified error. All 39 current regression checks pass; both bounded engine modes and the two-hour enhanced Orekit export run successfully. Event coefficients are uncalibrated presets; full subsystem physics remains in section 4.
 
 ## 4. Satellite state and subsystems
 
 - [ ] Standardize field names and units.
-- [ ] Separate radiation dose from dose rate.
-- [ ] Replace misleading aggregate component-health behavior.
+- [x] Separate radiation dose from dose rate.
+- [x] Replace misleading aggregate component-health behavior.
 - [ ] Preserve all relevant state when copying and serializing.
 - [ ] Add a battery energy model.
 - [ ] Add a basic thermal model.

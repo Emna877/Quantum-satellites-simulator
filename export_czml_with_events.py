@@ -522,12 +522,14 @@ def main():
         parser.error(str(exc))
     propagator = OrekitPropagator.from_config(config)
     try:
-        states = propagator.sample_states(duration, config['sample_step_seconds'])
-        epoch = states[0].timestamp
-        sat_positions = [(s.timestamp, *s.position.tolist()) for s in states]
+        from simulation.engine import SimulationEngine
+        engine_config = dict(config,event_config=EventConfig(enable_environmental=False,enable_attacks=False))
+        engine = SimulationEngine(engine_config)
+        engine.setup(propagator=propagator)
+        epoch = engine.state.timestamp
         print(f'Orekit period: {propagator.period_seconds/60:.3f} minutes')
-        # These remain demonstration events; event physics is tracked in TODO section 3.
-        manager = EventManager(EventConfig(enable_environmental=False, enable_attacks=False))
+        # Demonstration presets use the same lifecycle as paced engine execution.
+        manager = engine.event_manager
         from events.environmental import SolarFlare, MicrometeoroidImpact, EclipseEntry, EclipseExit
         from events.attacks import GPSSpoofing, JammingAttack, LaserDazzle
         demonstrations = [(300, SolarFlare, EventSeverity.MEDIUM),
@@ -539,13 +541,8 @@ def main():
         for offset, event_class, severity in demonstrations:
             if offset <= duration:
                 manager.schedule_event(event_class(timestamp=epoch+timedelta(seconds=offset), severity=severity))
-        for previous, current in zip(states, states[1:]):
-            if previous.in_eclipse != current.in_eclipse:
-                event_class = EclipseEntry if current.in_eclipse else EclipseExit
-                # Sample-aligned markers; the state itself uses exact Orekit shadow geometry.
-                manager.schedule_event(event_class(timestamp=current.timestamp))
-        for state in states:
-            manager.update(state.timestamp, state)
+        states = engine.run_offline(duration,config['sample_step_seconds'])
+        sat_positions = [(s.timestamp, *s.position.tolist()) for s in states]
         event_log = manager.export_event_log()
         document = create_czml_document(sat_positions, event_log, duration)
         output = Path(config['czml_output_file'])

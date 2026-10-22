@@ -36,7 +36,7 @@ Shared settings include SIM_START_TIME (UTC), SIM_TIME_STEP, SIM_SPEED_MULTIPLIE
 
 ```powershell
 python -m scripts.check_runtime
-python -m unittest scripts.test_runtime_config scripts.test_orbit
+python -m unittest scripts.test_runtime_config scripts.test_orbit scripts.test_engine_events
 ```
 
 The checker prints the selected JVM, loads the 11 bundled JAR files and Orekit data, propagates a satellite for 60 seconds, and exits with code 0 and PASS on success. It runs in its own process because JPype cannot restart a stopped JVM in the same Python process.
@@ -52,7 +52,7 @@ python -m http.server 8000
 
 Open http://localhost:8000/czml_viewer.html. The export writes `cubesat.czml` and `orbit_positions.csv`. Both can be redirected with ORBIT_CZML_FILE and ORBIT_CSV_FILE; if the CZML filename changes, update the simple viewer's load URL too. Output parent directories are created automatically. Cesium and map imagery require internet access.
 
-Run the engine with `python -m simulation.engine`; stop it with Ctrl+C. Its remaining event and subsystem correctness work is tracked in TODO sections 3-4. `python qkd.py` runs the separate experimental link calculation; it is not yet a complete security comparison.
+Run the engine with `python -m simulation.engine`; stop it with Ctrl+C. Its full battery, thermal, and operating-limit models remain in TODO section 4. `python qkd.py` runs the separate experimental link calculation; it is not yet a complete security comparison.
 
 ## Enhanced event demonstration
 
@@ -60,7 +60,7 @@ Run the engine with `python -m simulation.engine`; stop it with Ctrl+C. Its rema
 python export_czml_with_events.py --hours 6
 ```
 
-Open http://localhost:8000/czml_viewer_enhanced.html. Both viewers now display Orekit orbital positions. The enhanced exporter adds manually scheduled demonstration attacks and sample-aligned eclipse transition markers. Event effects remain prototypes pending TODO section 3. CLI duration overrides CZML_DURATION_HOURS, which overrides CZML_DEFAULT_DURATION_SECONDS. CZML_STEP_SECONDS sets sampling; the exact run endpoint is always included. Orbit period is derived from the orbital elements (about 98.773 minutes at the default 700 km altitude). The obsolete --orbit-minutes and ORBIT_PERIOD_MINUTES settings are rejected; remove them and configure orbital elements instead.
+Open http://localhost:8000/czml_viewer_enhanced.html. Both viewers now display Orekit orbital positions. The enhanced exporter adds manually scheduled demonstration attacks and sample-aligned eclipse transition markers. Event presets now run through the same engine step as paced execution; their numerical coefficients remain uncalibrated demonstration values. CLI duration overrides CZML_DURATION_HOURS, which overrides CZML_DEFAULT_DURATION_SECONDS. CZML_STEP_SECONDS sets sampling; the exact run endpoint is always included. Orbit period is derived from the orbital elements (about 98.773 minutes at the default 700 km altitude). The obsolete --orbit-minutes and ORBIT_PERIOD_MINUTES settings are rejected; remove them and configure orbital elements instead.
 
 The enhanced viewer defaults to `cubesat_with_events.czml`; use Load CZML for custom output files. Space toggles playback, R resets the view, and arrow keys adjust speed.
 
@@ -96,8 +96,92 @@ qkd.py), including contact already underway at the start or end of a run. Detect
 uses a 30-second maximum check interval and 1-microsecond root tolerance; this is
 not a guarantee of physical accuracy or detection of arbitrarily short grazing passes.
 
-Validation: 15 regression checks pass, including matching positions between both
+Orbital validation: regression checks pass, including matching positions between both
 exporters and correct final samples for a 65-second run sampled every 30 seconds.
 A 24-hour run from the default epoch produced five Tunis contacts above 5 degrees.
 The current approximate QKD model still produces zero secret keys in that scenario;
 communication-model corrections remain in TODO section 5.
+
+## Engine and event lifecycle
+
+```powershell
+# Fast bounded run (no wall-clock pacing)
+python -m simulation.engine --offline --seconds 3600
+
+# Paced bounded run (SIM_SPEED_MULTIPLIER controls playback speed)
+python -m simulation.engine --seconds 60
+
+# Current regression suite
+python -m unittest scripts.test_runtime_config scripts.test_orbit scripts.test_engine_events
+```
+
+Programmatic entry points are `engine.setup()`, `engine.step(dt)`,
+`engine.run_offline(duration, time_step=None)` (independent snapshots including the
+initial and exact final state), and `await engine.run(duration=None, paced=True)`.
+Call `await engine.shutdown()` after a programmatic offline run. The asynchronous
+run closes its JVM owner in a finally block, including on errors. JPype does not
+support restarting that JVM in the same process, so start a new process for a new
+standalone run after shutdown.
+
+`engine.clock.pause()`, `.resume()`, and `.set_speed(multiplier)` control paced
+execution. Paused steps do not propagate, apply events, or advance time. The clock
+uses monotonic wall time and anchors speed changes to the current expected simulated
+time; waits reevaluate controls every 50 ms. Offline execution uses the same physical
+step and does not sleep. Run durations and steps must advance datetime's microsecond
+resolution.
+
+EventManager takes one persistent state object. `update(timestamp, state, dt_seconds)`
+processes the interval since its previous update; an initial call without dt is an
+observation with no elapsed time. Equal timestamps do not integrate twice. Instant
+impulses, including impacts and eclipse transitions, execute exactly once through the
+manager. Duration effects use an exactly integrated linear decay envelope. Events
+that start and finish between observations still contribute their accumulated effects.
+An impulse at an interior boundary is applied in chronological order.
+
+Temporary effects (radio loss, throughput reduction, navigation error, sensor noise,
+extra power demand, drag coefficient) combine at each endpoint and restore their
+baselines after expiry. Call `clear_modifiers(state)` before replacing subsystem
+baselines; the engine does this before computing each new orbital state. Damage,
+battery consumption, heating, command activity, and dose increments persist. Eclipse
+state temporarily gates solar current to zero; geometric shadow transitions remain
+sample-aligned rather than root-found in the engine.
+
+Random rates are events per simulated day. EventConfig validates nonnegative finite
+rates and a normalized severity distribution; `random_seed` defaults to 0. The
+manager uses exponential waiting times for a Poisson arrival stream, so it supports
+multiple arrivals within a step and reproduces arrival logs across step partitions.
+Manually constructed event IDs are unique UUIDs unless supplied by the caller.
+Duplicate IDs and scheduling before the last processed time are rejected.
+
+Event application failures raise EventApplicationError with event identity and
+preserve the original exception. State, queue, RNG, and history roll back. Failure
+diagnostics remain in `manager.failures`; the engine also leaves its clock and orbital
+cursor unchanged when a step fails. Statistics count scheduled events separately from
+executed history. Exceptions are not converted into successful process exits.
+
+### Model limits and state changes
+
+Event coefficients are deterministic, configurable demonstration presets, not
+validated attack likelihoods or spacecraft physics. Parameter names and units are
+explicit in `events/attacks.py` and `events/environmental.py`; unknown parameters
+are rejected. Old unused parameters, random per-call damage, synthetic periodic
+eclipse rates, and the approximate eclipse scheduler have been removed. Use Orekit
+shadow transitions instead of `schedule_eclipse_events`.
+
+Radiation dose is accumulated mGy, and `radiation_rate_mgy_s` (also exposed by the
+compatibility name `radiation_dose_rate`) is mGy/s. Aggregate health is a continuous
+percentage budget, independent of the component status dictionary; detailed failure
+thresholds remain future work. Navigation disturbances change reported error/time
+uncertainty without moving the true Orekit position. State copies are deep copies.
+
+Power-drain events account for extra energy using a 20 Wh battery-capacity preset;
+this is not a complete charge/discharge model. Thermal events integrate a specified
+excursion; there is no radiative heat balance or recovery controller yet. Drag spikes
+change the recorded drag coefficient; the shared two-body orbit does not decay.
+These limitations belong to subsystem/force modeling, not event scheduling.
+
+The 39 current regression checks cover timestep invariance, all 12 event types,
+expiry/recovery, simultaneous impulses, Poisson reproducibility, state snapshots,
+transaction rollback, pause/speed timing, offline/paced agreement, and the existing
+Orekit and export checks. The legacy `test_phase*.py` scripts still contain obsolete
+assumptions and require the cleanup tracked in TODO section 9.

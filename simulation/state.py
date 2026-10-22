@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, Optional
 import numpy as np
+from copy import deepcopy
 from config import simulation_start
 
 
@@ -41,6 +42,7 @@ class SatelliteState:
     
     # Power subsystem
     battery_percent: float = 100.0  # 0-100%
+    battery_capacity_wh: float = 20.0  # Event-energy accounting preset, not a subsystem model
     solar_current: float = 0.0  # Amperes
     power_consumption: float = 0.0  # Watts
     charging_rate: float = 0.0  # Watts
@@ -57,7 +59,14 @@ class SatelliteState:
     downlink_rate: float = 0.0  # kbps
     
     # Environmental exposure
-    radiation_dose: float = 0.0  # mGy/h (milliGray per hour)
+    radiation_dose: float = 0.0  # Accumulated mGy
+    radiation_rate_mgy_s: float = 0.0
+    health_percent: float = 100.0
+    navigation_error_m: float = 0.0
+    navigation_time_offset_ms: float = 0.0
+    attitude_error_deg: float = 0.0
+    sensor_noise_rad_s: float = 0.0
+    injected_command_count: float = 0.0  # Integrated expected count, not a random integer
     drag_coefficient: float = 2.2  # dimensionless
     in_eclipse: bool = False
     
@@ -118,6 +127,14 @@ class SatelliteState:
             "uplink_rate": float(self.uplink_rate),
             "downlink_rate": float(self.downlink_rate),
             "radiation_dose": float(self.radiation_dose),
+            "radiation_rate_mgy_s": self.radiation_rate_mgy_s,
+            "health_percent": self.health_percent,
+            "navigation_error_m": self.navigation_error_m,
+            "navigation_time_offset_ms": self.navigation_time_offset_ms,
+            "attitude_error_deg": self.attitude_error_deg,
+            "sensor_noise_rad_s": self.sensor_noise_rad_s,
+            "injected_command_count": self.injected_command_count,
+            "battery_capacity_wh": self.battery_capacity_wh,
             "drag_coefficient": float(self.drag_coefficient),
             "in_eclipse": int(self.in_eclipse),
         }
@@ -159,42 +176,17 @@ class SatelliteState:
     
     def copy(self) -> 'SatelliteState':
         """Create a deep copy of the state."""
-        return SatelliteState(
-            timestamp=self.timestamp,
-            position=self.position.copy(),
-            velocity=self.velocity.copy(),
-            altitude=self.altitude,
-            quaternion=self.quaternion.copy(),
-            angular_velocity=self.angular_velocity.copy(),
-            battery_percent=self.battery_percent,
-            solar_current=self.solar_current,
-            power_consumption=self.power_consumption,
-            charging_rate=self.charging_rate,
-            internal_temp=self.internal_temp,
-            external_temp=self.external_temp,
-            heat_dissipation_rate=self.heat_dissipation_rate,
-            signal_strength=self.signal_strength,
-            packet_loss=self.packet_loss,
-            uplink_rate=self.uplink_rate,
-            downlink_rate=self.downlink_rate,
-            radiation_dose=self.radiation_dose,
-            drag_coefficient=self.drag_coefficient,
-            in_eclipse=self.in_eclipse,
-            component_health=self.component_health.copy(),
-            error_counters=self.error_counters.copy(),
-            last_command_time=self.last_command_time,
-            last_command_type=self.last_command_type,
-        )
-    
+        return deepcopy(self)
+
     # Compatibility properties for event system (aliased attributes)
     @property
     def radiation_dose_rate(self) -> float:
-        """Alias for radiation_dose (μSv/h)."""
-        return self.radiation_dose
+        """Compatibility name for dose rate in mGy/s (not accumulated dose)."""
+        return self.radiation_rate_mgy_s
     
     @radiation_dose_rate.setter
     def radiation_dose_rate(self, value: float):
-        self.radiation_dose = value
+        self.radiation_rate_mgy_s = value
     
     @property
     def signal_strength_db(self) -> float:
@@ -261,26 +253,14 @@ class SatelliteState:
     
     @property
     def component_health_pct(self) -> float:
-        """Aggregate component health as percentage."""
-        operational_count = sum(1 for status in self.component_health.values() if status == "OPERATIONAL")
-        return (operational_count / len(self.component_health)) * 100.0
+        """Continuous aggregate damage budget; component failure modeling is deferred."""
+        return self.health_percent
     
     @component_health_pct.setter
     def component_health_pct(self, value: float):
-        """Set aggregate health - degrades components proportionally."""
-        if value < self.component_health_pct:
-            # Degrading - randomly mark components as DEGRADED
-            target_operational = int((value / 100.0) * len(self.component_health))
-            components = list(self.component_health.keys())
-            operational_components = [c for c in components if self.component_health[c] == "OPERATIONAL"]
-            
-            import random
-            to_degrade = len(operational_components) - target_operational
-            if to_degrade > 0:
-                components_to_degrade = random.sample(operational_components, min(to_degrade, len(operational_components)))
-                for component in components_to_degrade:
-                    self.component_health[component] = "DEGRADED"
-    
+        """Store fractional damage without randomly changing component statuses."""
+        self.health_percent = max(0.0, min(100.0, value))
+
     @property
     def component_health_percent(self) -> float:
         """Alias for component_health_pct."""
@@ -301,17 +281,29 @@ class SatelliteState:
     
     @property
     def navigation_accuracy_meters(self) -> float:
-        """Navigation accuracy derived from error counters."""
-        # Base accuracy is 10m, increases with errors
-        return 10.0 + self.error_counters.get("attitude_control_errors", 0) * 5.0
+        """Nominal 10-m uncertainty plus the active navigation disturbance."""
+        return 10.0 + self.navigation_error_m
     
     @navigation_accuracy_meters.setter
     def navigation_accuracy_meters(self, value: float):
-        """Set navigation accuracy by updating error counters."""
-        if value > 10.0:
-            self.error_counters["attitude_control_errors"] = int((value - 10.0) / 5.0)
-        else:
-            self.error_counters["attitude_control_errors"] = 0
+        """Compatibility setter; does not modify true orbital position."""
+        self.navigation_error_m = max(0.0, value-10.0)
+
+    @property
+    def external_temp_c(self):
+        return self.external_temp
+
+    @external_temp_c.setter
+    def external_temp_c(self, value):
+        self.external_temp = value
+
+    @property
+    def angular_velocity_z(self):
+        return float(self.angular_velocity[2])
+
+    @angular_velocity_z.setter
+    def angular_velocity_z(self, value):
+        self.angular_velocity[2] = value
     
     @property
     def data_rate_kbps(self) -> float:

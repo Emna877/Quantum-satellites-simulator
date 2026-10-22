@@ -1,197 +1,110 @@
-"""
-Simulation Clock Manager - Synchronize simulated time with wall-clock time.
-
-This module provides precise timing control for real-time simulation,
-including pause/resume, speed control, and lag monitoring.
-"""
-
+"""Monotonic, piecewise-linear mapping between wall time and simulation time."""
 import asyncio
+import math
 import time
-from datetime import datetime, timedelta
-from typing import Optional
+from datetime import timedelta
 from config import simulation_start
 
 
 class SimulationClock:
-    """
-    Manages simulation time and synchronization with wall-clock time.
-    """
-    
-    def __init__(self, start_time: datetime, speed_multiplier: float = 1.0, time_step: float = 1.0):
-        """
-        Initialize simulation clock.
-        
-        Args:
-            start_time: Simulation starting time
-            speed_multiplier: Simulation speed (1.0 = real-time, 2.0 = 2x speed)
-            time_step: Time step in seconds for each tick
-        """
-        start_time = simulation_start(start_time.isoformat())
-        self.sim_start_time = start_time
-        self.sim_current_time = start_time
-        self.wall_start_time = time.time()
-        self.wall_pause_time: Optional[float] = None
-        self.total_pause_duration = 0.0
-        
+    def __init__(self, start_time, speed_multiplier=1.0, time_step=1.0):
+        for value in (speed_multiplier, time_step):
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError('Speed and timestep must be finite and positive')
+        self.sim_start_time = simulation_start(start_time.isoformat())
+        self.sim_current_time = self.sim_start_time
         self.speed_multiplier = speed_multiplier
         self.time_step = time_step
-        self.tick_count = 0
-        
+        self.wall_start_time = time.monotonic()
+        self._anchor_wall = self.wall_start_time
+        self._anchor_sim = 0.0
+        self.wall_pause_time = None
+        self.total_pause_duration = 0.0
         self.paused = False
         self.running = False
-        
-        # Statistics
+        self.tick_count = 0
         self.total_lag_seconds = 0.0
         self.max_lag_seconds = 0.0
         self.lag_samples = []
-    
+
     @property
-    def current_time(self) -> datetime:
-        """Get current simulation time."""
+    def current_time(self):
         return self.sim_current_time
-    
+
     @property
-    def elapsed_simulation_seconds(self) -> float:
-        """Get total simulation time elapsed since start."""
-        return (self.sim_current_time - self.sim_start_time).total_seconds()
-    
+    def elapsed_simulation_seconds(self):
+        return (self.current_time-self.sim_start_time).total_seconds()
+
     @property
-    def elapsed_wall_seconds(self) -> float:
-        """Get total wall-clock time elapsed (excluding pauses)."""
-        if self.paused and self.wall_pause_time is not None:
-            return self.wall_pause_time - self.wall_start_time - self.total_pause_duration
-        return time.time() - self.wall_start_time - self.total_pause_duration
-    
-    def tick(self) -> datetime:
-        """
-        Advance simulation by one time step.
-        
-        Returns:
-            New simulation time after tick
-        """
+    def elapsed_wall_seconds(self):
+        now = self.wall_pause_time if self.paused else time.monotonic()
+        return now-self.wall_start_time-self.total_pause_duration
+
+    @property
+    def expected_simulation_seconds(self):
+        return self._anchor_sim if self.paused else self._anchor_sim+(time.monotonic()-self._anchor_wall)*self.speed_multiplier
+
+    def rebase(self):
+        """Start pacing at the current simulated instant (e.g. after offline work)."""
+        self._anchor_sim = self.elapsed_simulation_seconds
+        self._anchor_wall = time.monotonic()
+
+    def tick(self, dt=None):
+        dt = self.time_step if dt is None else dt
+        if not math.isfinite(dt) or dt <= 0:
+            raise ValueError('Timestep must be finite and positive')
+        if not self.paused:
+            self.sim_current_time += timedelta(seconds=dt)
+            self.tick_count += 1
+        return self.current_time
+
+    def pause(self):
+        if not self.paused:
+            self._anchor_sim = self.expected_simulation_seconds
+            self.wall_pause_time = time.monotonic()
+            self.paused = True
+
+    def resume(self):
         if self.paused:
-            return self.sim_current_time
-        
-        self.sim_current_time += timedelta(seconds=self.time_step)
-        self.tick_count += 1
-        
-        return self.sim_current_time
-    
-    def calculate_lag(self) -> float:
-        """
-        Calculate lag between where simulation should be vs where it is.
-        
-        Returns:
-            Lag in seconds (positive = simulation behind, negative = ahead)
-        """
-        if self.paused:
-            return 0.0
-        
-        # Where simulation should be based on wall clock and speed
-        expected_sim_seconds = self.elapsed_wall_seconds * self.speed_multiplier
-        
-        # Where simulation actually is
-        actual_sim_seconds = self.elapsed_simulation_seconds
-        
-        # Lag = expected - actual (positive means we're behind)
-        lag = expected_sim_seconds - actual_sim_seconds
-        
-        # Update statistics
+            now = time.monotonic()
+            self.total_pause_duration += now-self.wall_pause_time
+            self._anchor_wall = now
+            self.wall_pause_time = None
+            self.paused = False
+
+    def set_speed(self, multiplier):
+        if not math.isfinite(multiplier) or multiplier <= 0:
+            raise ValueError('Speed multiplier must be finite and positive')
+        self._anchor_sim = self.expected_simulation_seconds
+        self._anchor_wall = time.monotonic()
+        self.speed_multiplier = multiplier
+
+    async def sleep_until_next_tick(self, dt=None):
+        """Wait before advancing; reevaluate pause/speed changes during the wait."""
+        target = self.elapsed_simulation_seconds+(self.time_step if dt is None else dt)
+        while True:
+            if self.paused:
+                return
+            remaining = (target-self.expected_simulation_seconds)/self.speed_multiplier
+            if remaining <= 1e-9:
+                return
+            await asyncio.sleep(min(remaining, 0.05))
+
+    def calculate_lag(self):
+        lag = 0.0 if self.paused else self.expected_simulation_seconds-self.elapsed_simulation_seconds
         self.total_lag_seconds += lag
         self.max_lag_seconds = max(self.max_lag_seconds, abs(lag))
         self.lag_samples.append(lag)
-        
-        # Keep only last 1000 samples
-        if len(self.lag_samples) > 1000:
-            self.lag_samples.pop(0)
-        
+        self.lag_samples = self.lag_samples[-1000:]
         return lag
-    
-    async def sleep_until_next_tick(self):
-        """
-        Sleep until it's time for the next simulation tick.
-        
-        This maintains precise timing by calculating how long to sleep
-        based on current lag and speed multiplier.
-        """
-        if self.paused:
-            # Just sleep a bit while paused
-            await asyncio.sleep(0.1)
-            return
-        
-        # Calculate when next tick should occur (wall time)
-        ticks_elapsed = self.tick_count
-        next_tick_sim_seconds = ticks_elapsed * self.time_step
-        next_tick_wall_seconds = next_tick_sim_seconds / self.speed_multiplier
-        next_tick_wall_time = self.wall_start_time + next_tick_wall_seconds + self.total_pause_duration
-        
-        # How long until next tick?
-        current_wall_time = time.time()
-        sleep_duration = next_tick_wall_time - current_wall_time
-        
-        if sleep_duration > 0:
-            await asyncio.sleep(sleep_duration)
-        # If sleep_duration <= 0, we're behind schedule, so don't sleep
-    
-    def pause(self):
-        """Pause the simulation clock."""
-        if not self.paused:
-            self.paused = True
-            self.wall_pause_time = time.time()
-            print(f"[Clock] Paused at sim_time={self.sim_current_time.isoformat()}")
-    
-    def resume(self):
-        """Resume the simulation clock."""
-        if self.paused and self.wall_pause_time is not None:
-            pause_duration = time.time() - self.wall_pause_time
-            self.total_pause_duration += pause_duration
-            self.paused = False
-            self.wall_pause_time = None
-            print(f"[Clock] Resumed from sim_time={self.sim_current_time.isoformat()}")
-    
-    def set_speed(self, multiplier: float):
-        """
-        Change simulation speed multiplier.
-        
-        Args:
-            multiplier: New speed multiplier (1.0 = real-time)
-        """
-        if multiplier <= 0:
-            raise ValueError("Speed multiplier must be positive")
-        
-        old_speed = self.speed_multiplier
-        self.speed_multiplier = multiplier
-        print(f"[Clock] Speed changed from {old_speed:.2f}x to {multiplier:.2f}x")
-    
-    def get_statistics(self) -> dict:
-        """
-        Get clock performance statistics.
-        
-        Returns:
-            Dictionary with timing statistics
-        """
-        avg_lag = sum(self.lag_samples) / len(self.lag_samples) if self.lag_samples else 0.0
-        
-        return {
-            "sim_time": self.sim_current_time.isoformat(),
-            "elapsed_sim_seconds": self.elapsed_simulation_seconds,
-            "elapsed_wall_seconds": self.elapsed_wall_seconds,
-            "tick_count": self.tick_count,
-            "speed_multiplier": self.speed_multiplier,
-            "paused": self.paused,
-            "current_lag_seconds": self.calculate_lag(),
-            "average_lag_seconds": avg_lag,
-            "max_lag_seconds": self.max_lag_seconds,
-            "total_pause_duration": self.total_pause_duration,
-        }
-    
-    def __str__(self) -> str:
-        """String representation of clock state."""
-        stats = self.get_statistics()
-        return (
-            f"SimClock(sim_time={stats['sim_time']}, "
-            f"ticks={stats['tick_count']}, "
-            f"speed={stats['speed_multiplier']:.2f}x, "
-            f"lag={stats['current_lag_seconds']:.3f}s, "
-            f"paused={stats['paused']})"
-        )
+
+    def get_statistics(self):
+        return dict(sim_time=self.current_time.isoformat(), elapsed_sim_seconds=self.elapsed_simulation_seconds,
+                    elapsed_wall_seconds=self.elapsed_wall_seconds, tick_count=self.tick_count,
+                    speed_multiplier=self.speed_multiplier, paused=self.paused,
+                    current_lag_seconds=0.0 if self.paused else self.expected_simulation_seconds-self.elapsed_simulation_seconds,
+                    average_lag_seconds=sum(self.lag_samples)/len(self.lag_samples) if self.lag_samples else 0,
+                    max_lag_seconds=self.max_lag_seconds, total_pause_duration=self.total_pause_duration)
+
+    def __str__(self):
+        return f'SimClock({self.current_time.isoformat()}, speed={self.speed_multiplier}, paused={self.paused})'

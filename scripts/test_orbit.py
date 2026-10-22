@@ -115,7 +115,7 @@ class OrbitTests(unittest.TestCase):
         config['event_config'] = dict(enable_environmental=False, enable_attacks=False)
         engine = SimulationEngine(config)
         engine.setup()
-        async def stop():
+        async def stop(dt=None):
             engine.running = False
         engine.clock.sleep_until_next_tick = stop
         asyncio.run(engine.run())
