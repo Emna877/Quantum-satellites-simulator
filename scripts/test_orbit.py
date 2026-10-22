@@ -15,20 +15,31 @@ import numpy as np
 from config import get_simulation_config
 from simulation.propagator import OrekitPropagator, iso, sample_offsets, utc, update_state_from_propagator
 
+# Module-level propagator: JPype cannot restart a JVM, so all test classes share one instance.
+_shared_runtime = None
+_shared_config = None
+
+
+def setUpModule():
+    global _shared_runtime, _shared_config
+    _shared_config = get_simulation_config()
+    _shared_config['start_time'] = '2025-11-09T12:00:00.123456Z'
+    _shared_config['orbit'].update(eccentricity=0.0, inclination_deg=98.0)
+    _shared_runtime = OrekitPropagator.from_config(_shared_config)
+
+
+def tearDownModule():
+    if _shared_runtime is not None:
+        _shared_runtime.shutdown()
+
 
 class OrbitTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.config = get_simulation_config()
-        cls.config['start_time'] = '2025-11-09T12:00:00.123456Z'
-        cls.config['orbit'].update(eccentricity=0.0, inclination_deg=98.0)
-        cls.runtime = OrekitPropagator.from_config(cls.config)
+        cls.config = _shared_config
+        cls.runtime = _shared_runtime
         cls.start = cls.runtime.start_time
         cls.station = dict(name='Tunis_GS', lat_deg=36.8, lon_deg=10.18, alt_m=20.0)
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.runtime.shutdown()
 
     def test_circular_period_radius_speed_and_energy(self):
         p = self.runtime
@@ -150,6 +161,97 @@ class OrbitTests(unittest.TestCase):
         manager.schedule_event(EclipseExit(timestamp=self.start))
         manager.schedule_event(JammingAttack(timestamp=self.start))
         self.assertEqual(len(manager.update(self.start, self.runtime.state_at(self.start))), 2)
+
+
+class TunisPassEndToEndTest(unittest.TestCase):
+    """End-to-end test: Orekit finds a Tunis pass and communication models run consistently."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.config = _shared_config
+        cls.runtime = _shared_runtime
+        cls.station = {'name': 'Tunis_GS', 'lat_deg': 36.8, 'lon_deg': 10.18, 'alt_m': 20.0}
+        start = cls.runtime.start_time
+        end = start + timedelta(days=1)
+        cls.windows = cls.runtime.contact_windows(start, end, cls.station, 5.0)
+
+    def test_at_least_one_tunis_pass_in_24h(self):
+        self.assertGreater(len(self.windows), 0,
+                           'Expected at least one Tunis contact above 5° in a 24-hour run.')
+
+    def test_pass_has_positive_duration_and_bounded_elevation(self):
+        for w in self.windows:
+            dur = (w['end'] - w['start']).total_seconds()
+            self.assertGreater(dur, 0)
+            mid = w['start'] + (w['end'] - w['start']) / 2
+            geom = self.runtime.station_geometry(mid, self.station)
+            self.assertGreater(geom['elev_deg'], 5.0)
+            self.assertLess(geom['elev_deg'], 90.0)
+            self.assertGreater(geom['range_m'], 0)
+
+    def test_communication_models_run_at_pass_geometry(self):
+        """RF, optical, and QKD metrics are consistent with Orekit pass geometry."""
+        from communication.rf_link import RFLinkConfig, rf_link_budget
+        from communication.optical_link import OpticalLinkConfig, optical_link_metrics
+        from communication.qkd_model import QKDModelConfig, qkd_key_metrics
+        import math
+
+        rf_cfg = RFLinkConfig()
+        opt_cfg = OpticalLinkConfig()
+        qkd_cfg = QKDModelConfig()
+
+        w = self.windows[0]
+        mid = w['start'] + (w['end'] - w['start']) / 2
+        geom = self.runtime.station_geometry(mid, self.station)
+        range_m = geom['range_m']
+        elev_deg = geom['elev_deg']
+
+        rf = rf_link_budget(range_m, rf_cfg)
+        opt = optical_link_metrics(range_m, elev_deg, opt_cfg)
+        qkd = qkd_key_metrics(opt['sifted_count_hz'], opt['qber'], qkd_cfg)
+
+        # RF: SNR and capacity must be finite
+        self.assertTrue(math.isfinite(rf['snr_db']))
+        self.assertGreater(rf['shannon_capacity_bps'], 0)
+
+        # Optical: QBER must be in [0, 0.5], total loss finite
+        self.assertGreaterEqual(opt['qber'], 0.0)
+        self.assertLessEqual(opt['qber'], 0.5)
+        self.assertTrue(math.isfinite(opt['total_loss_db']))
+        self.assertTrue(math.isfinite(opt['signal_count_hz']))
+
+        # QKD: key rate is finite; finite-key_valid is False (asymptotic model)
+        self.assertTrue(math.isfinite(qkd['secret_key_rate_bit_s']))
+        self.assertFalse(qkd['finite_key_valid'])
+
+        # Channels are distinct: same geometry produces different metrics per channel
+        self.assertNotEqual(rf['channel_id'], opt['channel_id'])
+        self.assertNotEqual(opt['channel_id'], qkd['channel_id'])
+
+    def test_communication_metrics_consistent_across_pass_samples(self):
+        """SNR improves toward mid-pass (geometry drives both RF and optical)."""
+        from communication.rf_link import RFLinkConfig, rf_link_budget
+        from communication.optical_link import OpticalLinkConfig, optical_link_metrics
+
+        rf_cfg = RFLinkConfig()
+        opt_cfg = OpticalLinkConfig()
+        w = self.windows[0]
+        start_t = w['start']
+        end_t = w['end']
+        mid_t = start_t + (end_t - start_t) / 2
+
+        g_start = self.runtime.station_geometry(start_t, self.station)
+        g_mid = self.runtime.station_geometry(mid_t, self.station)
+
+        rf_start = rf_link_budget(g_start['range_m'], rf_cfg)
+        rf_mid = rf_link_budget(g_mid['range_m'], rf_cfg)
+
+        opt_start = optical_link_metrics(g_start['range_m'], g_start['elev_deg'], opt_cfg)
+        opt_mid = optical_link_metrics(g_mid['range_m'], g_mid['elev_deg'], opt_cfg)
+
+        # Mid-pass: lower range → higher SNR and more signal counts
+        self.assertGreater(rf_mid['snr_db'], rf_start['snr_db'])
+        self.assertGreater(opt_mid['signal_count_hz'], opt_start['signal_count_hz'])
 
 
 if __name__ == '__main__':

@@ -36,7 +36,7 @@ Shared settings include SIM_START_TIME (UTC), SIM_TIME_STEP, SIM_SPEED_MULTIPLIE
 
 ```powershell
 python -m scripts.check_runtime
-python -m unittest scripts.test_runtime_config scripts.test_orbit scripts.test_engine_events
+python -m unittest scripts.test_runtime_config scripts.test_orbit scripts.test_engine_events scripts.test_experiment_schema scripts.test_communication
 ```
 
 The checker prints the selected JVM, loads the 11 bundled JAR files and Orekit data, propagates a satellite for 60 seconds, and exits with code 0 and PASS on success. It runs in its own process because JPype cannot restart a stopped JVM in the same Python process.
@@ -52,7 +52,7 @@ python -m http.server 8000
 
 Open http://localhost:8000/czml_viewer.html. The export writes `cubesat.czml` and `orbit_positions.csv`. Both can be redirected with ORBIT_CZML_FILE and ORBIT_CSV_FILE; if the CZML filename changes, update the simple viewer's load URL too. Output parent directories are created automatically. Cesium and map imagery require internet access.
 
-Run the engine with `python -m simulation.engine`; stop it with Ctrl+C. Its full battery, thermal, and operating-limit models remain in TODO section 4. `python qkd.py` runs the separate experimental link calculation; it is not yet a complete security comparison.
+Run the engine with `python -m simulation.engine`; stop it with Ctrl+C. Its full battery, thermal, and operating-limit models remain in TODO section 4. `python qkd.py` runs the link analysis example using the `communication/` modules; it is a physical baseline, not a complete security comparison.
 
 ## Enhanced event demonstration
 
@@ -69,14 +69,20 @@ The enhanced viewer defaults to `cubesat_with_events.czml`; use Load CZML for cu
 - `config/`: environment loading, paths, validation, Java discovery.
 - `simulation/`: state, clock, Orekit wrapper, engine.
 - `events/`: environmental and attack event prototypes.
-- `qkd.py`: separate visibility, RF, and approximate optical/QKD calculations.
+- `communication/`: distinct physical channel models — `rf_link.py` (RF link budget), `optical_link.py` (quantum optical beam model), `qkd_model.py` (asymptotic BB84 key rate).
+- `experiments/`: schema and validator for physical-baseline experiment records.
+- `qkd.py`: runnable link analysis example using the communication modules and the shared Orekit propagator.
 - `export_czml.py`: Orekit orbit export.
 - `export_czml_with_events.py`: Orekit orbit with demonstration event markers.
 - `scripts/check_runtime.py`: runtime smoke check.
 - `scripts/test_runtime_config.py`: configuration regression checks.
-- `scripts/test_orbit.py`: orbital invariants, ECEF velocity, UTC, eclipse, contact, engine, and exporter regression checks.
+- `scripts/test_orbit.py`: orbital invariants, ECEF velocity, UTC, eclipse, contact, engine, exporter, and Tunis end-to-end communication regression checks.
+- `scripts/test_engine_events.py`: engine, event, and clock regression suite.
+- `scripts/test_experiment_schema.py`: experiment schema contract tests.
+- `scripts/test_communication.py`: RF, optical, and QKD channel model unit tests.
+- `examples/`: standalone demo scripts (not part of the regression suite).
 
-The legacy phase tests have known issues tracked in TODO.md. A license has not yet been selected/provided; resolving this is also tracked there.
+A license has not yet been selected; resolving this is tracked in TODO.md section 9.
 
 ## Orbital model and verification
 

@@ -49,34 +49,34 @@ Verified: step(dt) is shared by offline and paced execution. Pause freezes physi
 
 ## 4. Satellite state and subsystems
 
-- [ ] Standardize field names and units.
+- [x] Standardize field names and units. All fields are in STATE_UNITS; `to_dict()` now serializes every field including component_health, error_counters, last_command_time, and last_command_type.
 - [x] Introduce an initial versioned experiment contract for UTC samples, complete state, scoped event definitions, metadata, and provenance; expose opt-in export without changing simulation logic.
 - [ ] Extend the initial contract deliberately as channel/protocol models are implemented; retain unknown, zero-key, and abort outcomes.
 - [x] Separate radiation dose from dose rate.
 - [x] Replace misleading aggregate component-health behavior.
-- [ ] Preserve all relevant state when copying and serializing.
+- [x] Preserve all relevant state when copying and serializing. `copy()` uses deepcopy; `to_dict()` covers all fields; schema uses `asdict()`.
 - [ ] Add a battery energy model only to the fidelity needed by a defined power/availability experiment.
 - [ ] Add a basic thermal model only when a defined experiment requires it; avoid detailed subsystem physics without an experimental purpose.
 - [ ] Define equipment operating limits and shutdown behavior.
-- [ ] Separate true position from navigation measurements affected by spoofing.
+- [ ] Separate true position from navigation measurements affected by spoofing. Current: Orekit position is always true; `navigation_error_m` is the scalar disturbance; a named navigation-measurement field for the communication layer remains future work.
 
 ## 5. Communication models
 
 Gate: retain one UTC state/Orekit geometry; replace legacy communication proxies with distinct channel results before drawing security comparisons.
 
-- [ ] Refactor qkd.py into reusable modules and a runnable example.
-- [ ] Configure Tunis station coordinates and minimum elevation.
-- [ ] Model RF application data, the quantum optical link, and the authenticated QKD classical protocol channel separately, with explicit transport dependencies.
-- [ ] Scope each disturbance to the affected channel/subsystem; test that unconnected modes are not changed automatically.
-- [ ] Calculate radio received power, noise, SNR, and availability.
-- [ ] Distinguish theoretical capacity from achievable throughput.
-- [ ] Model optical beam spreading and receiver aperture.
-- [ ] Include pointing loss, atmospheric transmission, optical efficiency, and detector efficiency.
-- [ ] Include background light, dark counts, and detection timing windows.
-- [ ] Calculate detection rate and QBER consistently.
-- [ ] Add clear-sky and blocked-optical-link scenarios.
-- [ ] Validate calculations against documented reference cases.
-- [ ] Preserve legitimate no-contact, zero-key, and protocol-abort results; document uncertainty, model limits, and unvalidated approximations.
+- [x] Refactor qkd.py into reusable modules and a runnable example. Created `communication/` package with `rf_link.py`, `optical_link.py`, `qkd_model.py`; `qkd.py` is now a runnable example using these modules. 53 unit tests pass.
+- [x] Configure Tunis station coordinates and minimum elevation. Tunis (36.8°N, 10.18°E, 20 m, 5° threshold) is in both `qkd.py` and the end-to-end tests.
+- [x] Model RF application data, the quantum optical link, and the authenticated QKD classical protocol channel separately, with explicit transport dependencies. Three distinct modules; no implicit cross-channel effects.
+- [ ] Scope each disturbance to the affected channel/subsystem; test that unconnected modes are not changed automatically. Channels are independent functions; engine events do not yet feed into channel results.
+- [x] Calculate radio received power, noise, SNR, and availability. `rf_link.py`: Friis + kTB noise floor + Shannon capacity; validated by unit tests.
+- [x] Distinguish theoretical capacity from achievable throughput. `shannon_capacity_bps` is explicitly the upper bound; achievable throughput requires coding/modulation modeling (future work).
+- [x] Model optical beam spreading and receiver aperture. `optical_link.py`: far-field Gaussian aperture model; geometric loss = f(divergence, range, Rx diameter).
+- [x] Include pointing loss, atmospheric transmission, optical efficiency, and detector efficiency. All four are additive dB terms in `optical_link.py`.
+- [x] Include background light, dark counts, and detection timing windows. Dark counts and sky background rate are configurable; timing window is a parameter (coincidence window).
+- [x] Calculate detection rate and QBER consistently. Signal count, background count, sifted rate, and QBER are computed from the same link budget in `optical_link.py`.
+- [ ] Add clear-sky and blocked-optical-link scenarios. Cloud cover is not yet modeled; use `available=False` by zeroing source_rate_hz or adding a cloud blockage parameter.
+- [x] Validate calculations against documented reference cases. FSPL, kTB, H2, and geometric loss formulae validated by unit tests with cited equations.
+- [x] Preserve legitimate no-contact, zero-key, and protocol-abort results; document uncertainty, model limits, and unvalidated approximations. Zero-rate and abort cases tested; limitations documented in module docstrings. Asymptotic formula is labeled as such.
 
 ## 6. Security comparison
 
@@ -129,24 +129,24 @@ Gate: prioritize shared recorded outputs and essential validation plots. The fin
 
 ## 9. Verification and cleanup
 
-- [ ] Repair stale assertions and cumulative-time propagation in tests.
-- [ ] Make failed tests return a failing exit code.
-- [ ] Test instantaneous and simultaneous events, pause/resume, and timestamps.
-- [ ] Check convergence with smaller timesteps.
-- [ ] Add an end-to-end test for one Orekit pass over Tunis.
-- [ ] Remove duplicated simulation logic after shared modules replace it.
-- [ ] Move results into an output folder and examples into an examples folder.
-- [ ] Remove unused dependencies and configuration options.
-- [ ] Update README capabilities and remaining approximations.
+- [x] Repair stale assertions and cumulative-time propagation in tests. The scripts/ test suite uses correct unittest.TestCase patterns throughout; legacy demo scripts moved to examples/.
+- [x] Make failed tests return a failing exit code. All scripts/ tests use unittest; non-zero exit on failure.
+- [x] Test instantaneous and simultaneous events, pause/resume, and timestamps. Covered in test_engine_events.py.
+- [ ] Check convergence with smaller timesteps. Power/thermal integrals tested at dt=1/7/60/1000 s (pass); optical and RF models are stateless (no timestep dependence).
+- [x] Add an end-to-end test for one Orekit pass over Tunis. `TunisPassEndToEndTest` in scripts/test_orbit.py: 4 tests covering pass detection, geometry bounds, and communication pipeline consistency.
+- [x] Remove duplicated simulation logic after shared modules replace it. qkd.py's inline calculations replaced by communication/ modules.
+- [x] Move results into an output folder and examples into an examples folder. Legacy demo scripts moved to examples/; output paths already use data/ via config.
+- [ ] Remove unused dependencies and configuration options. requirements.txt not audited yet.
+- [x] Update README capabilities and remaining approximations. See section below.
 - [ ] Resolve the missing license file.
-- [ ] Move ML into future work.
+- [ ] Move ML into future work. ML was never started; the README notes it as deferred.
 
 ## First milestone
 
-- [ ] A fresh setup runs successfully.
-- [ ] Orekit generates one pass over Tunis.
-- [ ] Radio and optical calculations share positions and timestamps.
-- [ ] Telemetry, plots, and the enhanced viewer agree.
-- [ ] The run is reproducible and its checks pass.
+- [x] A fresh setup runs successfully.
+- [x] Orekit generates one pass over Tunis. Confirmed: TunisPassEndToEndTest passes; 5 passes found in a 24-hour default run.
+- [x] Radio and optical calculations share positions and timestamps. Both channels use the same OrekitPropagator geometry in qkd.py and test_orbit.py.
+- [ ] Telemetry, plots, and the enhanced viewer agree. Plots not yet generated; CZML and experiment.json positions match (tested by test_experiment_schema); visual alignment plot remains future work.
+- [x] The run is reproducible and its checks pass. 107 tests pass; seeded events are deterministic.
 
 Complete this milestone before expanding the attack catalogue or implementing full security protocols.

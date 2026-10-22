@@ -99,7 +99,11 @@ class SatelliteState:
         self.timestamp = simulation_start(self.timestamp.isoformat())
 
     def to_dict(self) -> dict:
-        """Convert state to dictionary for logging."""
+        """Convert state to dictionary for logging.
+
+        Includes every field from STATE_UNITS so telemetry rows are self-contained
+        and consistent with the experiment schema.
+        """
         return {
             "timestamp": self.timestamp.isoformat(),
             "pos_x": float(self.position[0]),
@@ -117,26 +121,32 @@ class SatelliteState:
             "omega_y": float(self.angular_velocity[1]),
             "omega_z": float(self.angular_velocity[2]),
             "battery_pct": float(self.battery_percent),
+            "battery_capacity_wh": float(self.battery_capacity_wh),
             "solar_current": float(self.solar_current),
             "power_consumption": float(self.power_consumption),
             "charging_rate": float(self.charging_rate),
             "internal_temp": float(self.internal_temp),
             "external_temp": float(self.external_temp),
+            "heat_dissipation_rate": float(self.heat_dissipation_rate),
             "signal_strength": float(self.signal_strength),
             "packet_loss": float(self.packet_loss),
             "uplink_rate": float(self.uplink_rate),
             "downlink_rate": float(self.downlink_rate),
             "radiation_dose": float(self.radiation_dose),
-            "radiation_rate_mgy_s": self.radiation_rate_mgy_s,
-            "health_percent": self.health_percent,
-            "navigation_error_m": self.navigation_error_m,
-            "navigation_time_offset_ms": self.navigation_time_offset_ms,
-            "attitude_error_deg": self.attitude_error_deg,
-            "sensor_noise_rad_s": self.sensor_noise_rad_s,
-            "injected_command_count": self.injected_command_count,
-            "battery_capacity_wh": self.battery_capacity_wh,
+            "radiation_rate_mgy_s": float(self.radiation_rate_mgy_s),
+            "health_percent": float(self.health_percent),
+            "navigation_error_m": float(self.navigation_error_m),
+            "navigation_time_offset_ms": float(self.navigation_time_offset_ms),
+            "attitude_error_deg": float(self.attitude_error_deg),
+            "sensor_noise_rad_s": float(self.sensor_noise_rad_s),
+            "injected_command_count": float(self.injected_command_count),
             "drag_coefficient": float(self.drag_coefficient),
             "in_eclipse": int(self.in_eclipse),
+            # Compound fields — serialized as nested dicts
+            "component_health": dict(self.component_health),
+            "error_counters": dict(self.error_counters),
+            "last_command_time": self.last_command_time.isoformat() if self.last_command_time else None,
+            "last_command_type": self.last_command_type,
         }
     
     def validate(self) -> bool:
