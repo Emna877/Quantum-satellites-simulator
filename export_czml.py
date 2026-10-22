@@ -2,6 +2,7 @@
 import csv
 import json
 import math
+import argparse
 from pathlib import Path
 from config import get_simulation_config
 from simulation.propagator import OrekitPropagator, iso
@@ -9,6 +10,9 @@ from export_czml_with_events import create_czml_document
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--experiment-dir',help='Also export versioned physical-run records into this directory')
+    args = parser.parse_args()
     config = get_simulation_config()
     propagator = OrekitPropagator.from_config(config)
     try:
@@ -30,6 +34,10 @@ def main():
         output = Path(config['orbit_czml_file'])
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(document, indent=2), encoding='utf-8')
+        if args.experiment_dir:
+            from experiments.schema import write_experiment
+            record = write_experiment(args.experiment_dir,dict(config,jvm_path=propagator.jvm_path),states,source='orekit_orbit_export')
+            print(f'Experiment record: {record}')
         print(f"Orekit period: {propagator.period_seconds/60:.3f} minutes")
         print(f"CSV written: {config['orbit_csv_file']}")
         print(f"CZML written: {output}")

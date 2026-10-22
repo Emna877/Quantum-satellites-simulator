@@ -1,6 +1,6 @@
 # Quantum Satellites Simulator
 
-Orekit-based satellite motion with experimental radio/QKD link calculations and Cesium visualization. The intended comparison is classical versus QKD-assisted communication security. Encryption, full QKD protocols, and unified subsystem/event physics remain future work. Machine learning is deferred; see [TODO.md](TODO.md).
+Orekit-based satellite motion with experimental radio/QKD link calculations and Cesium visualization. The long-term goal is a reproducible satellite cybersecurity threat-analysis platform comparing classical and QKD-assisted cryptographic communication under controlled attacks. Encryption, full QKD protocols, and unified subsystem/event physics remain future work. Machine learning is deferred; see [TODO.md](TODO.md).
 
 ## Setup
 
@@ -185,3 +185,39 @@ expiry/recovery, simultaneous impulses, Poisson reproducibility, state snapshots
 transaction rollback, pause/speed timing, offline/paced agreement, and the existing
 Orekit and export checks. The legacy `test_phase*.py` scripts still contain obsolete
 assumptions and require the cleanup tracked in TODO section 9.
+
+## Experiment architecture and records
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the shared-state design, explicit channel
+boundaries, draft protocol choices, fairness rules, model assumptions, and milestone
+gates. The TODO order is unchanged. Complete the physical milestone, validated
+communication models, protocols/scenarios, paired runner, and metrics before the
+final interface. Subsystem detail must support a named experiment.
+
+Both exporters support an optional record alongside their normal CSV/CZML output:
+
+```powershell
+python export_czml.py --experiment-dir data/experiments/orbit
+python export_czml_with_events.py --hours 2 --experiment-dir data/experiments/events
+python -m unittest scripts.test_experiment_schema scripts.test_runtime_config scripts.test_orbit scripts.test_engine_events
+```
+
+Each directory receives `experiment.json` (schema 1.0) from the actual recorded
+snapshots. It contains full UTC state, ITRF frames, units, effective configuration,
+scoped event definitions and parameter units, source/JAR/data fingerprints, software
+provenance, and separate RF/quantum-optical/QKD-classical channel slots. The optional
+export does not recompute physics or change simulation behavior. Existing viewer
+commands continue to work.
+
+These are physical-baseline records: channel results are null and security is not
+evaluated. AES-256-GCM is recorded as a planned common application profile, not an
+implemented encryption feature. Zero-key and explicit abort results are valid future
+records and must not be replaced with successful outcomes. Current generic RF/event
+proxies are not yet the three distinct communication models; that work remains in
+section 5. The event scope metadata describes current surrogate effects rather than
+claiming that every attack affects every channel.
+
+`experiments.schema.validate_experiment` checks the contract;
+`event_from_definition` reconstructs supported event presets without arbitrary class
+loading. Preserve the input assets matching recorded hashes when retaining an
+experiment. Do not include cryptographic secrets in future configuration records.

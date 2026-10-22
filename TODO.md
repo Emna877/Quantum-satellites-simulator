@@ -1,6 +1,8 @@
 # Quantum Satellites Simulator — To-do list
 
-Goal: compare classical and QKD-assisted satellite communication security using one Orekit simulation. Machine learning is deferred.
+Goal: build a satellite cybersecurity threat-analysis platform that experimentally compares classical and QKD-assisted cryptographic communication under controlled, reproducible attacks. Orekit is the single source of orbital truth. Machine learning is deferred.
+
+Architecture: see [ARCHITECTURE.md](ARCHITECTURE.md) for shared-state boundaries, the initial experiment contract, channel scopes, draft protocols, fairness criteria, and milestone gates. Keep the milestone order below. Complete the physical foundation first; implement validated communication models, controlled scenarios, security protocols, a paired runner, and metrics before investing in the final UI.
 
 ## 1. Setup and configuration
 
@@ -48,18 +50,24 @@ Verified: step(dt) is shared by offline and paced execution. Pause freezes physi
 ## 4. Satellite state and subsystems
 
 - [ ] Standardize field names and units.
+- [x] Introduce an initial versioned experiment contract for UTC samples, complete state, scoped event definitions, metadata, and provenance; expose opt-in export without changing simulation logic.
+- [ ] Extend the initial contract deliberately as channel/protocol models are implemented; retain unknown, zero-key, and abort outcomes.
 - [x] Separate radiation dose from dose rate.
 - [x] Replace misleading aggregate component-health behavior.
 - [ ] Preserve all relevant state when copying and serializing.
-- [ ] Add a battery energy model.
-- [ ] Add a basic thermal model.
+- [ ] Add a battery energy model only to the fidelity needed by a defined power/availability experiment.
+- [ ] Add a basic thermal model only when a defined experiment requires it; avoid detailed subsystem physics without an experimental purpose.
 - [ ] Define equipment operating limits and shutdown behavior.
 - [ ] Separate true position from navigation measurements affected by spoofing.
 
 ## 5. Communication models
 
+Gate: retain one UTC state/Orekit geometry; replace legacy communication proxies with distinct channel results before drawing security comparisons.
+
 - [ ] Refactor qkd.py into reusable modules and a runnable example.
 - [ ] Configure Tunis station coordinates and minimum elevation.
+- [ ] Model RF application data, the quantum optical link, and the authenticated QKD classical protocol channel separately, with explicit transport dependencies.
+- [ ] Scope each disturbance to the affected channel/subsystem; test that unconnected modes are not changed automatically.
 - [ ] Calculate radio received power, noise, SNR, and availability.
 - [ ] Distinguish theoretical capacity from achievable throughput.
 - [ ] Model optical beam spreading and receiver aperture.
@@ -68,8 +76,11 @@ Verified: step(dt) is shared by offline and paced execution. Pause freezes physi
 - [ ] Calculate detection rate and QBER consistently.
 - [ ] Add clear-sky and blocked-optical-link scenarios.
 - [ ] Validate calculations against documented reference cases.
+- [ ] Preserve legitimate no-contact, zero-key, and protocol-abort results; document uncertainty, model limits, and unvalidated approximations.
 
 ## 6. Security comparison
+
+Gate: finalize the draft research questions, protocol choices, attacker capabilities, authentication assumptions, and metrics in ARCHITECTURE.md before implementing full security logic.
 
 - [ ] Define research questions and attacker capabilities.
 - [ ] Choose classical key establishment and authentication.
@@ -80,7 +91,7 @@ Verified: step(dt) is shared by offline and paced execution. Pause freezes physi
 - [ ] Include finite-size effects before treating short-pass results as security estimates.
 - [ ] Add decoy-state modeling if using weak laser pulses.
 - [ ] Implement key storage, consumption, and exhaustion.
-- [ ] Use consistent data encryption and authentication across modes.
+- [ ] Use the same application AES-256-GCM profile, traffic, AAD, nonce/tag rules, authentication policy, and key-refresh policy across modes; vary key establishment explicitly.
 - [ ] Define key refresh, nonce handling, and replay protection.
 - [ ] Add post-quantum cryptography as a separate option after the baseline works.
 
@@ -96,8 +107,13 @@ Verified: step(dt) is shared by offline and paced execution. Pause freezes physi
 - [ ] Forged or replayed classical messages.
 - [ ] Record effects on confidentiality, integrity, authentication, and availability.
 - [ ] Use reproducible seeds and repeat stochastic experiments.
+- [ ] Implement a paired experiment runner with shared physical/environment/attack realizations and separate named protocol RNG streams.
+- [ ] Record comparable latency, traffic overhead, authenticated data delivery, key-buffer behavior, aborts, rejected/accepted attacks, and availability metrics.
+- [ ] Keep channel availability distinct from confidentiality, integrity, authentication, and key-establishment security; retain negative runs in comparisons.
 
 ## 8. Results and visualization
+
+Gate: prioritize shared recorded outputs and essential validation plots. The final Cesium threat-analysis UI follows a validated paired runner and comparison metrics; the UI must not duplicate simulation or protocol calculations.
 
 - [ ] Export synchronized telemetry, event logs, and run configuration.
 - [ ] Record contact duration, delivered data, key production, outages, and energy consumption.
@@ -108,6 +124,7 @@ Verified: step(dt) is shared by offline and paced execution. Pause freezes physi
 - [ ] Use explicit event metadata instead of labels inferred from names.
 - [ ] Count unique events rather than graphical entities.
 - [ ] Make relevant markers follow the satellite.
+- [ ] Build synchronized playback, scoped threat overlays, and classical-versus-QKD-assisted views from actual experiment records.
 - [ ] Fix loading errors and render imported names safely as text.
 
 ## 9. Verification and cleanup

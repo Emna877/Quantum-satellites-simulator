@@ -508,6 +508,7 @@ def main():
     config = get_simulation_config()
     parser = argparse.ArgumentParser(description='Export Orekit positions and demonstration events')
     parser.add_argument('--hours', type=float, help='Simulation duration in hours')
+    parser.add_argument('--experiment-dir',help='Also export versioned physical-run records into this directory')
     parser.add_argument('--orbit-minutes', type=float, help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.orbit_minutes is not None or os.getenv('ORBIT_PERIOD_MINUTES'):
@@ -548,6 +549,12 @@ def main():
         output = Path(config['czml_output_file'])
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(document, indent=2), encoding='utf-8')
+        if args.experiment_dir:
+            from experiments.schema import write_experiment
+            effective_config = dict(engine.config,duration_seconds=duration,
+                                    time_step=config['sample_step_seconds'],jvm_path=propagator.jvm_path)
+            record = write_experiment(args.experiment_dir,effective_config,states,manager.get_event_history(),source='engine_event_export')
+            print(f'Experiment record: {record}')
         print(f'Wrote {len(states)} Orekit samples and {len(event_log)} events to {output}')
         print(f"Serve the project with python -m http.server 8000, then open {Path(config['czml_viewer_file']).name}")
     finally:
