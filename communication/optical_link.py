@@ -84,6 +84,9 @@ class OpticalLinkConfig:
     # Atmospheric clipping
     max_airmass: float = 10.0
 
+    # Environmental blocking
+    cloud_blocked: bool = False   # True = cloud/obstruction blocks optical path entirely
+
     def validate(self):
         for name, val in [('source_rate_hz', self.source_rate_hz),
                           ('wavelength_m', self.wavelength_m),
@@ -166,6 +169,25 @@ def optical_link_metrics(range_m: float, elevation_deg: float, cfg: OpticalLinkC
     cfg.validate()
     if range_m <= 0:
         raise ValueError("range_m must be positive")
+
+    if cfg.cloud_blocked:
+        return {
+            "channel_id": "quantum_optical",
+            "available": False,
+            "total_loss_db": float('inf'),
+            "geometric_loss_db": float('inf'),
+            "atmospheric_loss_db": float('inf'),
+            "pointing_loss_db": cfg.pointing_loss_db,
+            "optical_efficiency_loss_db": cfg.optical_efficiency_loss_db,
+            "channel_transmittance": 0.0,
+            "signal_count_hz": 0.0,
+            "background_count_hz": cfg.dark_counts_hz + cfg.sky_background_hz,
+            "total_count_hz": cfg.dark_counts_hz + cfg.sky_background_hz,
+            "qber": 0.5,
+            "sifted_count_hz": 0.0,
+            "link_usable": False,
+            "blocked_reason": "cloud_blocked",
+        }
 
     geo_loss = geometric_loss_db(range_m, cfg)
     atm_loss = atmospheric_loss_db(elevation_deg, cfg)

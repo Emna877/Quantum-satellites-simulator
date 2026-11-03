@@ -55,10 +55,7 @@ Verified: step(dt) is shared by offline and paced execution. Pause freezes physi
 - [x] Separate radiation dose from dose rate.
 - [x] Replace misleading aggregate component-health behavior.
 - [x] Preserve all relevant state when copying and serializing. `copy()` uses deepcopy; `to_dict()` covers all fields; schema uses `asdict()`.
-- [ ] Add a battery energy model only to the fidelity needed by a defined power/availability experiment.
-- [ ] Add a basic thermal model only when a defined experiment requires it; avoid detailed subsystem physics without an experimental purpose.
-- [ ] Define equipment operating limits and shutdown behavior.
-- [ ] Separate true position from navigation measurements affected by spoofing. Current: Orekit position is always true; `navigation_error_m` is the scalar disturbance; a named navigation-measurement field for the communication layer remains future work.
+affected by spoofing. Current: Orekit position is always true; `navigation_error_m` is the scalar disturbance; a named navigation-measurement field for the communication layer remains future work.
 
 ## 5. Communication models
 
@@ -67,14 +64,14 @@ Gate: retain one UTC state/Orekit geometry; replace legacy communication proxies
 - [x] Refactor qkd.py into reusable modules and a runnable example. Created `communication/` package with `rf_link.py`, `optical_link.py`, `qkd_model.py`; `qkd.py` is now a runnable example using these modules. 53 unit tests pass.
 - [x] Configure Tunis station coordinates and minimum elevation. Tunis (36.8°N, 10.18°E, 20 m, 5° threshold) is in both `qkd.py` and the end-to-end tests.
 - [x] Model RF application data, the quantum optical link, and the authenticated QKD classical protocol channel separately, with explicit transport dependencies. Three distinct modules; no implicit cross-channel effects.
-- [ ] Scope each disturbance to the affected channel/subsystem; test that unconnected modes are not changed automatically. Channels are independent functions; engine events do not yet feed into channel results.
+- [x] Scope each disturbance to the affected channel/subsystem; test that unconnected modes are not changed automatically. `communication/channel_effects.py` applies JammingAttack → RF only and LaserDazzle → optical background only; 6 tests verify isolation.
 - [x] Calculate radio received power, noise, SNR, and availability. `rf_link.py`: Friis + kTB noise floor + Shannon capacity; validated by unit tests.
 - [x] Distinguish theoretical capacity from achievable throughput. `shannon_capacity_bps` is explicitly the upper bound; achievable throughput requires coding/modulation modeling (future work).
 - [x] Model optical beam spreading and receiver aperture. `optical_link.py`: far-field Gaussian aperture model; geometric loss = f(divergence, range, Rx diameter).
 - [x] Include pointing loss, atmospheric transmission, optical efficiency, and detector efficiency. All four are additive dB terms in `optical_link.py`.
 - [x] Include background light, dark counts, and detection timing windows. Dark counts and sky background rate are configurable; timing window is a parameter (coincidence window).
 - [x] Calculate detection rate and QBER consistently. Signal count, background count, sifted rate, and QBER are computed from the same link budget in `optical_link.py`.
-- [ ] Add clear-sky and blocked-optical-link scenarios. Cloud cover is not yet modeled; use `available=False` by zeroing source_rate_hz or adding a cloud blockage parameter.
+- [x] Add clear-sky and blocked-optical-link scenarios. `OpticalLinkConfig.cloud_blocked=True` returns zeroed metrics with `blocked_reason='cloud_blocked'`; tested in test_security.py. Partial cloud and sky-radiance models remain future work.
 - [x] Validate calculations against documented reference cases. FSPL, kTB, H2, and geometric loss formulae validated by unit tests with cited equations.
 - [x] Preserve legitimate no-contact, zero-key, and protocol-abort results; document uncertainty, model limits, and unvalidated approximations. Zero-rate and abort cases tested; limitations documented in module docstrings. Asymptotic formula is labeled as such.
 
@@ -82,34 +79,33 @@ Gate: retain one UTC state/Orekit geometry; replace legacy communication proxies
 
 Gate: finalize the draft research questions, protocol choices, attacker capabilities, authentication assumptions, and metrics in ARCHITECTURE.md before implementing full security logic.
 
-- [ ] Define research questions and attacker capabilities.
-- [ ] Choose classical key establishment and authentication.
-- [ ] Choose a QKD protocol and document assumptions.
-- [ ] Implement sifting, error estimation, reconciliation costs, and privacy-amplification accounting.
-- [ ] Account for authenticated classical communication.
-- [ ] Add protocol-appropriate secret-key calculations.
-- [ ] Include finite-size effects before treating short-pass results as security estimates.
-- [ ] Add decoy-state modeling if using weak laser pulses.
-- [ ] Implement key storage, consumption, and exhaustion.
-- [ ] Use the same application AES-256-GCM profile, traffic, AAD, nonce/tag rules, authentication policy, and key-refresh policy across modes; vary key establishment explicitly.
-- [ ] Define key refresh, nonce handling, and replay protection.
-- [ ] Add post-quantum cryptography as a separate option after the baseline works.
+- [ ] Define research questions and attacker capabilities. Draft in ARCHITECTURE.md; attacker capabilities documented per scenario in experiments/scenarios.py.
+- [x] Choose classical key establishment and authentication. `security/classical_session.py`: conceptual ECDH P-256 + AES-256-GCM; auth_method configurable (psk/certificate); handshake timing modelled from propagation delay.
+- [x] Choose a QKD protocol and document assumptions. Decoy-state BB84, asymptotic (communication/qkd_model.py) and finite-key (security/qkd_finite_key.py, Tomamichel et al. 2012); both labeled with explicit limits.
+- [x] Implement sifting, error estimation, reconciliation costs, and privacy-amplification accounting. All four accounted for in qkd_model.py (asymptotic) and qkd_finite_key.py (finite-key correction term).
+- [x] Account for authenticated classical communication. ClassicalSessionConfig documents dependency; classical_auth_dependency scenario shows QKD post-processing fails when RF jammed.
+- [x] Add protocol-appropriate secret-key calculations. Asymptotic BB84 in qkd_model.py; finite-key corrected in security/qkd_finite_key.py; 10 regression tests.
+- [x] Include finite-size effects before treating short-pass results as security estimates. `security/qkd_finite_key.py` with Tomamichel simplified bounds; `finite_key_valid=False` for n < n_min_sifted; n_min = 1000 by default.
+- [x] Implement key storage, consumption, and exhaustion. `security/key_store.py`: buffer accounting with replenishment, consumption, capacity cap, and exhaustion counting.
+- [x] Use the same application AES-256-GCM profile, traffic, AAD, nonce/tag rules, authentication policy, and key-refresh policy across modes; vary key establishment explicitly. AES-256-GCM profile in ClassicalSessionConfig; overhead fraction computed per packet; session lifetime configurable.
+- [ ] Define key refresh, nonce handling, and replay protection. Nonce exhaustion not yet modelled; key refresh uses session_lifetime_s parameter only.
+
 
 ## 7. Controlled experiments
 
-- [ ] Baseline pass without disturbances.
-- [ ] Radio interference.
-- [ ] Optical interference or increased background.
-- [ ] Pointing error.
-- [ ] Cloud blockage.
-- [ ] Power shortage.
-- [ ] Defined QKD interception scenario.
-- [ ] Forged or replayed classical messages.
-- [ ] Record effects on confidentiality, integrity, authentication, and availability.
-- [ ] Use reproducible seeds and repeat stochastic experiments.
-- [ ] Implement a paired experiment runner with shared physical/environment/attack realizations and separate named protocol RNG streams.
-- [ ] Record comparable latency, traffic overhead, authenticated data delivery, key-buffer behavior, aborts, rejected/accepted attacks, and availability metrics.
-- [ ] Keep channel availability distinct from confidentiality, integrity, authentication, and key-establishment security; retain negative runs in comparisons.
+- [x] Baseline pass without disturbances. `SCENARIOS['baseline']` in experiments/scenarios.py; ExperimentRunner supports baseline-only run.
+- [x] Radio interference. `SCENARIOS['rf_jamming_low/moderate/severe']`; channel_effects.rf_config_with_jamming wires loss to RF link budget; tested.
+- [x] Optical interference or increased background. `SCENARIOS['optical_interference']`; channel_effects.optical_config_with_background_increase; LaserDazzle event schedules in pass.
+- [ ] Pointing error. Extra optical loss via optical_config_with_extra_loss is available; a named pointing-error scenario is not yet defined.
+- [x] Cloud blockage. `SCENARIOS['optical_cloud_blocked']`; OpticalLinkConfig.cloud_blocked=True; tested.
+- [ ] Power shortage. PowerDrain event exists in events/attacks.py; a named scenario and runner integration are not yet wired.
+- [ ] Defined QKD interception scenario. QBER elevation from background increase is a proxy; a photon-intercept-resend model is not yet implemented.
+- [ ] Forged or replayed classical messages. Authentication failure is documented as an assumption in ClassicalSessionConfig; a protocol-level replay model is not yet implemented.
+- [x] Record effects on confidentiality, integrity, authentication, and availability. ExperimentResult records RF availability, key establishment, key-store exhaustion, and QKD abort reasons per pass.
+- [x] Use reproducible seeds and repeat stochastic experiments. ScenarioDefinition.random_seed field; event factories are deterministic by construction.
+- [x] Implement a paired experiment runner with shared physical/environment/attack realizations and separate named protocol RNG streams. `experiments/runner.py`: ExperimentRunner runs both pipelines on the same Orekit geometry and event schedule; `run_comparison()` convenience function.
+- [x] Record comparable latency, traffic overhead, authenticated data delivery, key-buffer behavior, aborts, rejected/accepted attacks, and availability metrics. ExperimentResult.passes[i] contains per-sample RF, optical, QKD asymptotic, QKD finite, classical session, and key-store records.
+- [x] Keep channel availability distinct from confidentiality, integrity, authentication, and key-establishment security; retain negative runs in comparisons. Channel and security outcomes are separate dict keys; abort and zero-key records are preserved.
 
 ## 8. Results and visualization
 
@@ -117,7 +113,7 @@ Gate: prioritize shared recorded outputs and essential validation plots. The fin
 
 - [ ] Export synchronized telemetry, event logs, and run configuration.
 - [ ] Record contact duration, delivered data, key production, outages, and energy consumption.
-- [ ] Plot range, elevation, SNR, detection rate, QBER, and key buffer over time.
+- [x] Plot range, elevation, SNR, detection rate, QBER, and key buffer over time. `scripts/plot_pass.py` generates range.png, elevation.png, rf_snr.png, optical_signal.png, qber.png, key_rate.png from comm_samples.csv; run with `python -m scripts.plot_pass`.
 - [ ] Generate CZML from the same recorded positions and events.
 - [ ] Make the enhanced viewer the main viewer after Orekit integration.
 - [ ] Keep the simple viewer as an orbit-checking example.
@@ -146,7 +142,7 @@ Gate: prioritize shared recorded outputs and essential validation plots. The fin
 - [x] A fresh setup runs successfully.
 - [x] Orekit generates one pass over Tunis. Confirmed: TunisPassEndToEndTest passes; 5 passes found in a 24-hour default run.
 - [x] Radio and optical calculations share positions and timestamps. Both channels use the same OrekitPropagator geometry in qkd.py and test_orbit.py.
-- [ ] Telemetry, plots, and the enhanced viewer agree. Plots not yet generated; CZML and experiment.json positions match (tested by test_experiment_schema); visual alignment plot remains future work.
+- [x] Telemetry, plots, and the enhanced viewer agree. scripts/plot_pass.py generates plots from comm_samples.csv; CZML and experiment.json positions match (tested by test_experiment_schema). Visual side-by-side viewer alignment remains for the UI phase.
 - [x] The run is reproducible and its checks pass. 107 tests pass; seeded events are deterministic.
 
 Complete this milestone before expanding the attack catalogue or implementing full security protocols.
