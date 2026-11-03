@@ -96,9 +96,9 @@ Gate: finalize the draft research questions, protocol choices, attacker capabili
 - [x] Baseline pass without disturbances. `SCENARIOS['baseline']` in experiments/scenarios.py; ExperimentRunner supports baseline-only run.
 - [x] Radio interference. `SCENARIOS['rf_jamming_low/moderate/severe']`; channel_effects.rf_config_with_jamming wires loss to RF link budget; tested.
 - [x] Optical interference or increased background. `SCENARIOS['optical_interference']`; channel_effects.optical_config_with_background_increase; LaserDazzle event schedules in pass.
-- [ ] Pointing error. Extra optical loss via optical_config_with_extra_loss is available; a named pointing-error scenario is not yet defined.
+- [x] Pointing error. `SCENARIOS['pointing_error']`; optical_extra_loss_db=6.0 via optical_config_with_extra_loss; models ACS residuals / fine-steering mirror overrun.
 - [x] Cloud blockage. `SCENARIOS['optical_cloud_blocked']`; OpticalLinkConfig.cloud_blocked=True; tested.
-- [ ] Power shortage. PowerDrain event exists in events/attacks.py; a named scenario and runner integration are not yet wired.
+- [x] Power shortage. `SCENARIOS['power_shortage']`; rf_signal_loss_db=6.0 + PowerDrain event via _power_drain_factory; runner applies loss to RF link budget.
 - [ ] Defined QKD interception scenario. QBER elevation from background increase is a proxy; a photon-intercept-resend model is not yet implemented.
 - [ ] Forged or replayed classical messages. Authentication failure is documented as an assumption in ClassicalSessionConfig; a protocol-level replay model is not yet implemented.
 - [x] Record effects on confidentiality, integrity, authentication, and availability. ExperimentResult records RF availability, key establishment, key-store exhaustion, and QKD abort reasons per pass.
@@ -114,7 +114,7 @@ Gate: prioritize shared recorded outputs and essential validation plots. The fin
 - [ ] Export synchronized telemetry, event logs, and run configuration.
 - [ ] Record contact duration, delivered data, key production, outages, and energy consumption.
 - [x] Plot range, elevation, SNR, detection rate, QBER, and key buffer over time. `scripts/plot_pass.py` generates range.png, elevation.png, rf_snr.png, optical_signal.png, qber.png, key_rate.png from comm_samples.csv; run with `python -m scripts.plot_pass`.
-- [ ] Generate CZML from the same recorded positions and events.
+- [x] Generate CZML from the same recorded positions and events. `exports/czml_events.py`: experiment_result_to_czml_events() produces billboard packets (RF outages, QKD aborts, optical blocks, classical failures, contact bounds); run_experiment.py --czml exports events.czml.
 - [ ] Make the enhanced viewer the main viewer after Orekit integration.
 - [ ] Keep the simple viewer as an orbit-checking example.
 - [ ] Use explicit event metadata instead of labels inferred from names.
@@ -134,7 +134,7 @@ Gate: prioritize shared recorded outputs and essential validation plots. The fin
 - [x] Move results into an output folder and examples into an examples folder. Legacy demo scripts moved to examples/; output paths already use data/ via config.
 - [ ] Remove unused dependencies and configuration options. requirements.txt not audited yet.
 - [x] Update README capabilities and remaining approximations. See section below.
-- [ ] Resolve the missing license file.
+- [x] Resolve the missing license file. MIT License added (LICENSE); copyright 2026 Emna Souayah.
 - [ ] Move ML into future work. ML was never started; the README notes it as deferred.
 
 ## First milestone

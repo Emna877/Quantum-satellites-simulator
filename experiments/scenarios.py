@@ -35,10 +35,10 @@ class ScenarioDefinition:
     # Each factory receives (contact_start, contact_end) and returns a list of events.
     event_factories: List[Callable] = field(default_factory=list)
     # Direct channel-disturbance overrides (applied in runner regardless of state)
-    rf_signal_loss_db: float = 0.0          # extra RF loss (jamming)
+    rf_signal_loss_db: float = 0.0          # extra RF loss (jamming / power reduction)
     optical_background_scale: float = 1.0   # multiplier on sky background
     optical_cloud_blocked: bool = False     # hard optical block
-    optical_extra_loss_db: float = 0.0      # additional optical path loss
+    optical_extra_loss_db: float = 0.0      # additional optical path loss (pointing error, etc.)
 
     def build_events(self, contact_start: datetime, contact_end: datetime) -> list:
         events = []
@@ -69,6 +69,18 @@ def _spoofing_factory(severity: int, offset_fraction: float = 0.1):
         spoof_start = start + timedelta(seconds=duration * offset_fraction)
         sev = [EventSeverity.LOW, EventSeverity.MEDIUM, EventSeverity.HIGH, EventSeverity.CRITICAL][severity - 1]
         return [GPSSpoofing(timestamp=spoof_start, severity=sev)]
+    return factory
+
+
+def _power_drain_factory(severity: int, offset_fraction: float = 0.1):
+    """Return an event-factory for a PowerDrain event."""
+    def factory(start: datetime, end: datetime):
+        from events.attacks import PowerDrain
+        from events.base import EventSeverity
+        duration = (end - start).total_seconds()
+        drain_start = start + timedelta(seconds=duration * offset_fraction)
+        sev = [EventSeverity.LOW, EventSeverity.MEDIUM, EventSeverity.HIGH, EventSeverity.CRITICAL][severity - 1]
+        return [PowerDrain(timestamp=drain_start, severity=sev)]
     return factory
 
 
@@ -188,5 +200,34 @@ SCENARIOS: Dict[str, ScenarioDefinition] = {
         ),
         rf_signal_loss_db=40.0,
         event_factories=[_jamming_factory(severity=4)],
+    ),
+
+    'pointing_error': ScenarioDefinition(
+        name='Optical Pointing Error',
+        description=(
+            'Telescope pointing error adds extra optical path loss, reducing '
+            'signal count and degrading QBER.  Models ACS residuals or satellite '
+            'attitude disturbances that exceed the fine-steering mirror range.  '
+            'The RF channel is unaffected; pointing loss is optical-only.  '
+            'Extra loss of 6 dB corresponds to roughly doubling the effective '
+            'beam divergence.'
+        ),
+        optical_extra_loss_db=6.0,
+        event_factories=[],
+    ),
+
+    'power_shortage': ScenarioDefinition(
+        name='Power Shortage',
+        description=(
+            'A PowerDrain attack or anomaly reduces available satellite power.  '
+            'The direct channel-level effect modelled here is transmitter power '
+            'reduction: the satellite reduces its RF transmit power by 6 dB to '
+            'conserve energy, degrading link margin.  The optical transmitter '
+            'may also reduce pulse rate; this is not yet modelled separately.  '
+            'Expected result: lower RF SNR and potentially reduced optical '
+            'source rate in future model extensions.'
+        ),
+        rf_signal_loss_db=6.0,
+        event_factories=[_power_drain_factory(severity=2)],
     ),
 }

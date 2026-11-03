@@ -257,6 +257,42 @@ class TestBB84FiniteKeyMetrics(unittest.TestCase):
         r = self._call()
         self.assertEqual(r['model_id'], 'bb84_finite_tomamichel2012')
 
+    def test_wcp_key_is_present_for_sps(self):
+        r = self._call()
+        self.assertIn('wcp', r)
+        self.assertFalse(r['wcp']['wcp_applied'])
+        self.assertEqual(r['wcp']['mu'], 0.0)
+
+    def test_wcp_applied_flag_set_for_wcp(self):
+        import math
+        cfg = BB84FiniteKeyConfig(wcp_mean_photon_number=0.1)
+        r = bb84_finite_key_metrics(1e6, 0.004, 600.0, cfg)
+        self.assertTrue(r['wcp']['wcp_applied'])
+        self.assertEqual(r['wcp']['model'], 'decoy_state_infinite_limit')
+        self.assertAlmostEqual(r['wcp']['P1'], 0.1 * math.exp(-0.1), places=8)
+
+    def test_wcp_high_qber_aborts_via_e1_ub(self):
+        # mu=0.1, QBER=5% → e1_ub ≈ 0.55 > 0.5 → r_asym=0 → abort
+        cfg = BB84FiniteKeyConfig(wcp_mean_photon_number=0.1)
+        r = bb84_finite_key_metrics(1e6, 0.05, 600.0, cfg)
+        self.assertEqual(r['key_status'], 'aborted')
+        self.assertIn('phase error', r['abort_reason'])
+
+    def test_wcp_fewer_bits_than_sps_for_same_qber(self):
+        # With low QBER both succeed; WCP must produce fewer bits
+        cfg_sps = BB84FiniteKeyConfig(wcp_mean_photon_number=0.0)
+        cfg_wcp = BB84FiniteKeyConfig(wcp_mean_photon_number=0.1)
+        r_sps = bb84_finite_key_metrics(1e6, 0.004, 600.0, cfg_sps)
+        r_wcp = bb84_finite_key_metrics(1e6, 0.004, 600.0, cfg_wcp)
+        self.assertEqual(r_sps['key_status'], 'succeeded')
+        self.assertEqual(r_wcp['key_status'], 'succeeded')
+        self.assertLess(r_wcp['secure_key_bits'], r_sps['secure_key_bits'])
+
+    def test_wcp_no_decoy_model_label(self):
+        cfg = BB84FiniteKeyConfig(wcp_mean_photon_number=0.1, use_decoy_state=False)
+        r = bb84_finite_key_metrics(1e6, 0.004, 600.0, cfg)
+        self.assertEqual(r['wcp']['model'], 'no_decoy_single_photon_only')
+
 
 # ---------------------------------------------------------------------------
 # KeyStore tests
