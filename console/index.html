@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quantum Satellites Simulator — Threat Analysis Console</title>
+<link rel="icon" href="/console/satellite.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.121/Build/Cesium/Widgets/widgets.css">
+<link rel="stylesheet" href="/console/styles.css">
+<script src="https://cesium.com/downloads/cesiumjs/releases/1.121/Build/Cesium/Cesium.js"></script>
+<script type="module" src="/console/app.js"></script>
+</head>
+<body>
+<header class="topbar">
+ <a class="brand" href="#overview" aria-label="Quantum Satellites Simulator overview"><span class="brand-mark">Q<span>✧</span></span><span>QUANTUM <b>SATELLITES</b><small>THREAT ANALYSIS CONSOLE</small></span></a>
+ <div class="top-context"><span class="status-dot"></span> LOCAL RESEARCH ENVIRONMENT <span class="tag">SIMULATION · NOT LIVE</span></div>
+ <button id="importButton" class="button ghost">↥ Import run</button><input id="importFile" type="file" accept=".json,application/json" hidden>
+ <button class="button primary" type="submit" form="runForm" id="runButton">▶ Run experiment</button>
+</header>
+<nav class="nav" aria-label="Workspaces">
+ <a href="#overview" data-workspace="overview">Overview</a><a href="#threats" data-workspace="threats">Threat Analysis</a><a href="#communication" data-workspace="communication">Communication</a><a href="#qkd" data-workspace="qkd">QKD Laboratory</a><a href="#events" data-workspace="events">Events</a><a href="#reports" data-workspace="reports">Analysis & Reports</a><a href="#settings" data-workspace="settings">Settings</a>
+ <span class="nav-status" id="connectionStatus" role="status">Connecting to local runtime…</span>
+</nav>
+<div id="notice" class="notice" role="status" hidden></div>
+<main class="shell">
+ <aside class="sidebar left-sidebar" aria-label="Mission telemetry">
+  <div class="section-heading"><span>MISSION CONTEXT</span><span class="mini-dot"></span></div>
+  <div class="satellite-heading"><img src="/console/satellite.svg" alt=""><div><h2>Quantum CubeSat</h2><span class="muted">LEO · Orekit two-body model</span></div></div>
+  <label class="field-label" for="scenarioSelect">CONTROLLED SCENARIO</label>
+  <select id="scenarioSelect" name="scenario" form="runForm"><option value="rf_jamming_moderate">RF jamming · moderate</option></select>
+  <p id="scenarioDescription" class="fine">Run an experiment to load computed results.</p>
+  <div class="divider"></div>
+  <div class="section-heading"><span>ORBITAL TELEMETRY</span><span class="tag small">SAMPLED</span></div>
+  <dl class="telemetry"><div><dt>Altitude</dt><dd id="altitude">— <small>km</small></dd></div><div><dt>Velocity · Earth fixed</dt><dd id="velocity">— <small>km/s</small></dd></div><div><dt>Orbital period</dt><dd id="period">— <small>min</small></dd></div><div><dt>Latitude</dt><dd id="latitude">—</dd></div><div><dt>Longitude</dt><dd id="longitude">—</dd></div><div><dt>Illumination</dt><dd id="illumination">Not computed</dd></div></dl>
+  <div class="sample-time" id="sampleTimestamp">No recording loaded</div>
+  <div class="divider"></div><div class="section-heading"><span>GROUND STATION</span><span id="contactBadge" class="tag">NO DATA</span></div>
+  <h3 id="stationName">Tunis ground station</h3><p class="fine" id="stationCoords">36.80° N / 10.18° E</p>
+  <dl class="telemetry compact"><div><dt>Elevation</dt><dd id="elevation">—</dd></div><div><dt>Slant range</dt><dd id="range">—</dd></div><div><dt>Contact threshold</dt><dd id="threshold">5.0°</dd></div><div><dt>Contact windows</dt><dd id="contactCount">—</dd></div></dl>
+  <button class="button full" id="nextContact">↗ Next contact</button>
+  <div class="divider"></div><div class="section-heading"><span>SCENE LAYERS</span><button class="text-button" id="toggleLeft" title="Collapse telemetry">−</button></div>
+  <div class="layer-list"><label><input type="checkbox" data-layer="orbit" checked> Orbital trajectory <i class="key cyan"></i></label><label><input type="checkbox" data-layer="track" checked> Ground track <i class="key subdued"></i></label><label><input type="checkbox" data-layer="link" checked> Station contact path <i class="key cyan"></i></label><label><input type="checkbox" data-layer="events" checked> Event markers <i class="key amber"></i></label><label><input type="checkbox" data-layer="lighting" checked> Day / night lighting</label></div>
+  <p class="fine muted">No spatial jammer footprint or corrupted navigation vector is supplied by the current runner.</p>
+ </aside>
+ <section class="center-stage" aria-label="Experiment workspace">
+  <div id="globe" aria-label="Interactive Earth and Orekit satellite orbit"></div>
+  <div id="globeUnavailable" class="globe-unavailable" hidden><h2>3D renderer unavailable</h2><p>Cesium needs an internet connection and WebGL. Recorded data, charts and exports remain usable.</p></div>
+  <div class="viewport-header" id="viewportHeader"><div><span class="eyebrow">SHARED ORBITAL REFERENCE</span><h1>One orbit. Two security architectures.</h1><p id="runCaption">Generate or import a computed experiment to begin.</p></div><span class="tag" id="dataBadge">AWAITING DATA</span></div>
+  <div class="camera-tools" id="cameraTools"><button id="freeCamera" class="button active">◉ Free orbit</button><button id="followCamera" class="button">⌖ Follow satellite</button><button id="resetCamera" class="button" title="Reset camera">↺ Reset view</button></div>
+  <div class="globe-caption" id="globeCaption"><span class="key cyan"></span> Orekit trajectory <span class="key amber"></span> Modeled incident · no live telemetry</div>
+  <div id="emptyState" class="empty-state"><span class="eyebrow">REPRODUCIBLE RESEARCH</span><h2>Start with a real simulation.</h2><p>Generate 24 hours of Orekit geometry and compare the baseline with a controlled scenario. Nothing on this console is a fabricated live metric.</p><button class="button primary" type="submit" form="runForm">Generate first experiment ↗</button><a href="#settings">Review model settings first</a></div>
+  <div id="busy" class="busy" hidden><span class="spinner"></span><div><strong>Computing experiment</strong><p id="busyText">Starting the local Orekit worker…</p></div></div>
+  <div class="workspace-content" id="workspaceContent" hidden></div>
+ </section>
+ <aside class="sidebar right-sidebar" aria-label="Threat and event inspector">
+  <div class="section-heading"><span>THREAT SITUATION</span><span id="activeCount" class="tag amber">0 ACTIVE</span></div>
+  <div class="impact-heading"><span id="threatHeadline">No recording</span><span class="fine" id="effectScope">Explicit subsystem scope</span></div>
+  <div class="assumption-banner">Model outputs, not evidence of a real attack. Channel availability ≠ cryptographic security.</div>
+  <div class="section-heading"><span>EVENT STREAM</span><span id="eventCount" class="muted">0</span></div>
+  <div id="eventList" class="event-list"><p class="fine">Events will appear after a run is loaded.</p></div>
+  <div class="divider"></div><div class="section-heading"><span>EVENT INSPECTOR</span></div>
+  <div id="eventInspector" class="inspector"><p>Select a timeline marker or event to inspect its timestamp, targets and model assumptions.</p></div>
+ </aside>
+</main>
+<section class="channel-strip" aria-label="Aligned channel summaries">
+ <div><span class="channel-dot cyan"></span><span>CLASSICAL RF DATA<small id="rfDetail">Awaiting samples</small></span><strong id="rfStatus">—</strong><span id="rfMetric" class="metric">— dB SNR</span></div>
+ <div><span class="channel-dot violet"></span><span>QUANTUM OPTICAL<small id="optDetail">Optical key channel · estimate</small></span><strong id="optStatus">—</strong><span id="optMetric" class="metric">— QBER</span></div>
+ <div><span class="channel-dot amber"></span><span>QKD CLASSICAL PROTOCOL<small>Authenticated post-processing</small></span><strong class="warning">Not executed</strong><button class="text-button" id="limitationsButton">Model limits ↗</button></div>
+</section>
+<footer class="playback">
+ <div class="timeline-top"><span class="eyebrow">SHARED UTC TIMELINE</span><span id="timeRange" class="fine">No recording loaded</span><span id="recordingId" class="fine muted">—</span></div>
+ <div id="timelineMarkers" class="timeline-markers" aria-label="Contact windows and event markers"></div>
+ <input id="scrubber" class="scrubber" type="range" min="0" max="1" value="0" step="0.001" aria-label="Simulation playback time" disabled>
+ <div class="playback-row"><div class="transport"><button id="rewind" class="icon-button" title="Reset recording" aria-label="Reset recording">↶</button><button id="previous" class="icon-button" title="Previous sample" aria-label="Previous sample">|◀</button><button id="play" class="play-button" aria-label="Play recording">▶</button><button id="next" class="icon-button" title="Next sample" aria-label="Next sample">▶|</button><select id="speed" aria-label="Playback speed"><option value="1">1×</option><option value="10">10×</option><option value="60" selected>60×</option><option value="300">300×</option><option value="1000">1000×</option></select></div><time id="currentTime">— UTC</time><div class="playback-note"><span id="playbackState">PAUSED</span><span>Space: play/pause · ← →: step</span><button class="button ghost small" id="exportButton">↧ Export JSON</button></div></div>
+</footer>
+<dialog id="limitsDialog"><div class="dialog-head"><h2>Scientific status & model limits</h2><button id="closeLimits" class="icon-button" aria-label="Close model limits">✕</button></div><p class="fine">This is a research simulation. A result is only as strong as its stated model and assumptions.</p><ul id="limitsList"></ul></dialog>
+<form id="runForm" hidden></form>
+<div id="settingsTemplate" hidden>
+ <div class="page-heading"><span class="eyebrow">EXPERIMENT CONFIGURATION</span><h1>Define the physical scenario.</h1><p>Changes are applied by Python when you run again. The current recording stays unchanged.</p></div>
+ <div class="settings-grid">
+ <fieldset><legend>01 / Orbit & timeline</legend><label>Start time · UTC<input form="runForm" name="start_time" type="datetime-local" required step="1"></label><div class="field-pair"><label>Duration · hours<input form="runForm" name="hours" type="number" min="0.1" max="24" step="0.1" required></label><label>Sample interval · s<input form="runForm" name="dt_s" type="number" min="10" max="300" required></label></div><div class="field-pair"><label>Altitude · km<input form="runForm" name="altitude_km" type="number" min="200" max="2000" required></label><label>Inclination · deg<input form="runForm" name="inclination_deg" type="number" min="0" max="180" step="0.1" required></label></div><p class="fine">Period is derived by Orekit. Two-body propagation; no J2 or atmospheric drag force.</p></fieldset>
+ <fieldset><legend>02 / Ground station</legend><div class="field-pair"><label>Latitude · deg<input form="runForm" name="station_lat" type="number" min="-89" max="89" step="0.01" required></label><label>Longitude · deg<input form="runForm" name="station_lon" type="number" min="-180" max="180" step="0.01" required></label></div><label>Minimum elevation · deg<input form="runForm" name="min_elevation_deg" type="number" min="0" max="80" step="0.1" required></label><p class="fine">Visibility is geometric. A visible satellite does not guarantee a usable RF link or a secret quantum key.</p></fieldset>
+ <fieldset><legend>03 / Classical RF model</legend><label>Transmit power · dBm<input form="runForm" name="rf_power_dbm" type="number" min="-20" max="60" step="1" required></label><p class="fine">20 dBm = 100 mW. The existing model declares availability above 0 dB SNR. Shannon capacity is an upper bound, not measured payload throughput.</p></fieldset>
+ <fieldset id="opticalSettings"><legend>04 / Quantum optical model</legend><div class="field-pair"><label>Receiver aperture · m<input form="runForm" name="rx_aperture_m" type="number" min="0.1" max="3" step="0.1" required></label><label>Beam half-angle · µrad<input form="runForm" name="divergence_urad" type="number" min="1" max="200" step="1" required></label></div><div class="field-pair"><label>Sky background · counts/s<input form="runForm" name="background_hz" type="number" min="0" max="10000000" required></label><label>Source · photons/s<input form="runForm" name="source_rate_hz" type="number" min="100000" max="10000000000" step="100000" required></label></div><p class="fine">These controls rerun the current optical equations. No complete decoy-state BB84 exchange or security proof is implemented.</p></fieldset>
+ </div><div class="settings-footer"><span class="fine">One shared geometry · Separate channel assumptions · No forced positive key outcomes</span><button class="button primary" form="runForm" type="submit">Run with these settings ↗</button></div>
+</div>
+<div id="toast" class="toast" role="status" hidden></div>
+</body></html>

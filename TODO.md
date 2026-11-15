@@ -111,17 +111,19 @@ Gate: finalize the draft research questions, protocol choices, attacker capabili
 
 Gate: prioritize shared recorded outputs and essential validation plots. The final Cesium threat-analysis UI follows a validated paired runner and comparison metrics; the UI must not duplicate simulation or protocol calculations.
 
-- [ ] Export synchronized telemetry, event logs, and run configuration.
+- [x] Export synchronized telemetry, event logs, and run configuration. The local console exports `console_run.v1` records including shared UTC geometry, both experiment cases, inputs, configuration, provenance and limitations.
 - [ ] Record contact duration, delivered data, key production, outages, and energy consumption.
 - [x] Plot range, elevation, SNR, detection rate, QBER, and key buffer over time. `scripts/plot_pass.py` generates range.png, elevation.png, rf_snr.png, optical_signal.png, qber.png, key_rate.png from comm_samples.csv; run with `python -m scripts.plot_pass`.
 - [x] Generate CZML from the same recorded positions and events. `exports/czml_events.py`: experiment_result_to_czml_events() produces billboard packets (RF outages, QKD aborts, optical blocks, classical failures, contact bounds); run_experiment.py --czml exports events.czml.
-- [ ] Make the enhanced viewer the main viewer after Orekit integration.
-- [ ] Keep the simple viewer as an orbit-checking example.
-- [ ] Use explicit event metadata instead of labels inferred from names.
-- [ ] Count unique events rather than graphical entities.
-- [ ] Make relevant markers follow the satellite.
-- [ ] Build synchronized playback, scoped threat overlays, and classical-versus-QKD-assisted views from actual experiment records.
-- [ ] Fix loading errors and render imported names safely as text.
+- [x] Provide the main Threat Analysis Console after Orekit integration; preserve both legacy CZML viewers as examples.
+- [x] Keep the simple viewer as an orbit-checking example.
+- [x] Use explicit event metadata in the console instead of labels inferred from names.
+- [x] Count unique console events rather than graphical entities.
+- [x] Make active run-wide disturbance markers follow the satellite in the console.
+- [x] Build synchronized playback, scoped threat overlays, and classical-versus-QKD-assisted views from actual experiment records. Seven workspaces, shared playback, real-data charts, local reruns, imports and reports are implemented; browser visual verification remains manual.
+- [x] Handle console loading errors and render imported names safely as text.
+
+UI implementation follows the requested vision without treating scientific milestones as completed by visualization. See UI_GUIDE.md. Inspection found remaining runner gaps despite some earlier checked items: overrides are run-wide; prototype events are not engine-applied; authenticated QKD classical-channel dependence is not enforced; cryptography is conceptual; finite-key validation and usable-key accounting remain incomplete. Validate and resolve these within the existing milestone order before making security claims. No navigation-offset vector, spatial jammer footprint, delivered-data metric or recovery score is fabricated by the console.
 
 ## 9. Verification and cleanup
 
@@ -145,4 +147,4 @@ Gate: prioritize shared recorded outputs and essential validation plots. The fin
 - [x] Telemetry, plots, and the enhanced viewer agree. scripts/plot_pass.py generates plots from comm_samples.csv; CZML and experiment.json positions match (tested by test_experiment_schema). Visual side-by-side viewer alignment remains for the UI phase.
 - [x] The run is reproducible and its checks pass. 107 tests pass; seeded events are deterministic.
 
-Complete this milestone before expanding the attack catalogue or implementing full security protocols.
+

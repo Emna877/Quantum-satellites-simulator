@@ -2,6 +2,17 @@
 
 Orekit-based satellite motion with experimental radio/QKD link calculations and Cesium visualization. The long-term goal is a reproducible satellite cybersecurity threat-analysis platform comparing classical and QKD-assisted cryptographic communication under controlled attacks. Encryption, full QKD protocols, and unified subsystem/event physics remain future work. Machine learning is deferred; see [TODO.md](TODO.md).
 
+## Main interface: Threat Analysis Console
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python -m scripts.serve_console --port 8000
+```
+
+Open **http://127.0.0.1:8000**. The local console provides seven workspaces, a Cesium globe, shared UTC playback, baseline/scenario charts, scoped event inspection, editable run parameters, history, and JSON/CSV reports. Its Python adapter delegates calculations to the existing Orekit propagator and experiment runner; the browser displays recorded outputs. Both older CZML viewers remain available as separate examples.
+
+See [UI_GUIDE.md](UI_GUIDE.md) for detailed setup, manual tests, automated checks, scientific concepts and remaining gaps. The interface explicitly labels engineering estimates: scenario overrides currently apply run-wide, prototype markers do not execute attacks, actual cryptographic exchanges are absent, and the QKD authenticated classical dependency is not enforced by the runner. No positive key count is presented as a security proof.
+
 ## Setup
 
 Use Python 3.10+ with a compatible 64-bit Java installation (Java 9+ is required by the installed JPype; Java 25 is verified here). From the project root in PowerShell:
