@@ -19,6 +19,7 @@ export function prepareRun(input) {
  for(const item of run.telemetry){item.time=utcMs(item.timestamp);if(item.time<=previous||item.time<start||item.time>end||!Array.isArray(item.position_m)||item.position_m.length!==3||!item.position_m.every(finite))throw new Error('Invalid or unordered orbital samples.');previous=item.time;}
  if(run.frames?.position!=='ITRF'||run.frames?.velocity!=='ITRF')throw new Error('The console requires explicit ITRF orbital coordinates.');
  if(!Array.isArray(run.events))throw new Error('Event records must be an array.');
+ if(run.study!=null&&!Array.isArray(run.study.rows))throw new Error('Scenario study rows must be an array.');
  const seen=new Set();for(const item of run.events){if(typeof item.id!=='string'||seen.has(item.id))throw new Error('Events need unique IDs.');seen.add(item.id);item.startMs=utcMs(item.start);item.endMs=utcMs(item.end);if(item.endMs<item.startMs||item.startMs<start||item.startMs>end)throw new Error('Event times are outside this recording.');}
  for(const name of ['baseline','scenario']){
   const result=run[name];if(!result||!Array.isArray(result.passes))throw new Error('Missing comparison records.');
@@ -63,6 +64,13 @@ export function availabilitySeconds(result){
  }return seconds;
 }
 export function getMetric(sample,path){let value=sample;for(const key of path.split('.'))value=value?.[key];return finite(value)?value:null;}
+const csvEscape=value=>{const text=value==null?'':String(value);return /[",\n\r]/.test(text)?'"'+text.replaceAll('"','""')+'"':text;};
+/** One row per scenario: the paper's results table, including the uncertainty range. */
+export function studyCsv(study){
+ const columns=['scenario_id','scenario','passes','ecdh_sessions','mlkem_sessions','qkd_passes_with_key','qkd_key_bits_nominal','qkd_key_bits_min','qkd_key_bits_max','qkd_pass_qber','attack_verdict','attack_detected','main_qkd_abort_reason'];
+ const rows=[columns];for(const r of study.rows){const n=r.nominal;rows.push([r.scenario_id,r.name,n.passes,n.ecdh_passes,n.mlkem_passes,n.qkd_passes,Math.round(n.qkd_key_bits),Math.round(r.qkd_key_bits_min),Math.round(r.qkd_key_bits_max),n.qkd_qber,r.detection.verdict,r.detection.text,n.main_abort_reason]);}
+ return rows.map(row=>row.map(csvEscape).join(',')).join('\r\n');
+}
 export function csvRows(run){
  const columns=['timestamp_utc','case','elevation_deg','range_m','rf_snr_db','rf_available','shannon_capacity_bps','optical_loss_db','photon_detection_hz','qber','asymptotic_key_rate_bit_s'];
  const escape=value=>{const text=value==null?'':String(value);return /[",\n\r]/.test(text)?'"'+text.replaceAll('"','""')+'"':text;};
@@ -74,7 +82,8 @@ export function reportText(run){return [
  `Contacts: ${run.scenario.passes.length}`,`Baseline sampled RF availability: ${availabilitySeconds(run.baseline)??'not recorded'} s`,
  `Selected sampled RF availability: ${availabilitySeconds(run.scenario)??'not recorded'} s`,
  'All channel and key outputs are engineering estimates. No actual application messages were encrypted.',
- 'QKD authenticated classical post-processing is not executed. No blanket quantum-security conclusion follows.',
+ 'QKD key is credited only when the authenticated RF link can carry post-processing (time and traffic check); the messages themselves are not executed. No blanket quantum-security conclusion follows.',
+ ...(run.study?['','All scenarios (nominal QKD key; range over the optical uncertainty sweep):',...run.study.rows.map(r=>`${r.name}: ECDH ${r.nominal.ecdh_passes}/${r.nominal.passes}, ML-KEM ${r.nominal.mlkem_passes}/${r.nominal.passes}, QKD ${Math.round(r.nominal.qkd_key_bits)} bits [${Math.round(r.qkd_key_bits_min)}-${Math.round(r.qkd_key_bits_max)}]; ${r.detection.text}`)]:[]),
  '', 'Pass outcomes:',...run.scenario.passes.map((p,i)=>`Pass ${i+1}: ${p.window_start} to ${p.window_end}; finite-key estimate=${p.qkd_finite_pass?.key_status??'unknown'}; bits=${p.qkd_finite_pass?.secure_key_bits??'unknown'}; reason=${p.qkd_finite_pass?.abort_reason??'none recorded'}`),
  '', 'Assumptions and limitations:',...(run.limitations||[]).map(x=>'- '+x)].join('\n');}
 export function serializableRun(run){const copy=structuredClone(run);delete copy.startMs;delete copy.endMs;for(const sample of copy.telemetry)delete sample.time;for(const event of copy.events){delete event.startMs;delete event.endMs;}for(const name of ['baseline','scenario']){delete copy[name]._series;for(const pass of copy[name].passes){delete pass.startMs;delete pass.endMs;for(const sample of pass.samples){delete sample.time;delete sample.passIndex;}}}return copy;}

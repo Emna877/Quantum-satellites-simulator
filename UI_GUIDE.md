@@ -25,19 +25,21 @@ The globe requires internet access for Cesium and map imagery, and a browser wit
 4. The completed recording opens at its first station contact, if one exists. The latest completed recording is loaded again on a page refresh.
 5. Confirm the console says **SIMULATION / NOT LIVE**. Its UTC clock follows the experiment, not your computer clock.
 
-Python computes one shared orbital reference and evaluates both cases at matching communication timestamps. Each worker uses a separate process because the Java bridge cannot restart a JVM inside one Python process. Requests are bounded to keep local experiments manageable.
+Python computes one shared orbital reference and evaluates the baseline and the chosen scenario at matching communication timestamps. It also runs **every** scenario under 9 optical-uncertainty variants (sky background × 0.5/1/2, zenith atmospheric loss × 0.5/1/2) on the same cached geometry for the results table; this adds a few seconds. Each worker uses a separate process because the Java bridge cannot restart a JVM inside one Python process. Requests are bounded to keep local experiments manageable.
 
-## 3. Check each workspace
+## 3. Check each view
 
-| Workspace | What to try | Expected behavior |
+The console has four tabs: Globe, Pass explorer, Results, and Model & assumptions. Events, History and Settings live in a side drawer (**☰ Events · History · Settings**, or press Escape to close it).
+
+| View | What to try | Expected behavior |
 |---|---|---|
-| Overview | Drag the globe, follow the satellite, toggle scene layers | Earth, orbit, station and contact path use recorded Orekit positions. A contact path indicates geometry, not secure communication. |
-| Threat Analysis | Inspect the disturbance and click an event | The inspector identifies targets, timestamps and model assumptions. The RF loss condition is explicitly labeled run-wide. Prototype attack markers are labeled marker-only. |
-| Communication | Choose a contact and compare baseline/scenario curves | RF SNR changes under RF jamming; optical values remain unchanged for this RF-only scenario. Unavailable RF links are legitimate results. |
-| QKD Laboratory | Inspect detection, QBER, key-rate curves and pass estimates | Zero keys and aborted estimates remain visible. Finite-pass estimates and buffer snapshots are not presented as instantaneous measurements. |
-| Events | Filter records and click a row | Playback seeks to its timestamp; the inspector shows its explicit subsystem scope. Counts represent unique events. |
-| Analysis & Reports | Review pass tables, availability, history and downloads | Summaries use actual recorded values. Unsupported delivery/security metrics are explained rather than invented. |
-| Settings | Change aperture or background, then run again | Python recomputes results. Editing a field alone never changes an existing recording. |
+| Globe | Drag the globe, follow the satellite, toggle scene layers, press Play | Full-screen Earth, orbit, ground track, station and contact path from recorded Orekit positions. A contact path indicates geometry, not secure communication. |
+| Results | Read the method cards, the results table and the key figure | One row per scenario: ECDH and ML-KEM sessions, QKD key (nominal and sweep range), passes with key, an "attack detected?" verdict and the main abort reason. The loaded scenario row is highlighted. |
+| Pass explorer | Choose a contact, click a chart | ECDH / ML-KEM / QKD cards and six baseline-vs-scenario charts, with telemetry and playback still visible. "Now" values follow the cursor, "this pass" values cover the contact. |
+| Model & assumptions | Check the Micius table and the formulas | Every formula has a source; every parameter of this run is listed; the five Micius checks show model vs paper with tolerance. |
+| Drawer · Events | Filter and click an event; tick "Show surrogate attack markers" | Surrogate markers (scheduled times that do not change results) are hidden by default and appear on the globe and timeline only when ticked. |
+| Drawer · History | Load an earlier run | Older runs without a results table still open; the Results tab says so. |
+| Drawer · Settings | Change aperture or background, then run again | Python recomputes results. Editing a field alone never changes an existing recording. |
 
 The sidebar shows the timestamp of the physical sample being inspected. The globe interpolates between recorded positions for smooth animation; numerical telemetry uses the most recent recorded sample. Contact boundaries and communication sample instants are included in the physical recording.
 
@@ -47,7 +49,7 @@ The sidebar shows the timestamp of the physical sample being inspected. The glob
 2. Press Play, then Pause. Confirm that the clock and numerical telemetry stop changing.
 3. Change speed and resume. This changes playback speed; it does not recompute physics.
 4. Drag the shared timeline, or use the previous/next sample buttons. Space toggles playback; arrow keys step when you are not editing a field.
-5. Open Communication or QKD Laboratory and click a chart. The same UTC clock, globe, event inspector and chart cursors follow that time.
+5. Open the Pass explorer and click a chart, then switch to the Globe tab. The same UTC clock drives the globe, event inspector and chart cursors.
 6. Seek outside a contact. Communication values should show no contact rather than reuse the last successful link measurement.
 
 ## 5. Test negative results and isolation
@@ -58,7 +60,7 @@ The existing runner applies scenario channel overrides throughout the run. Sched
 
 ## 6. Export and reload
 
-Use **Export JSON** for the complete console record, or Analysis & Reports for telemetry CSV, events JSON, scenario results and a text summary. Import the complete console JSON and confirm the same timeline and results reappear. Exported zero values must stay zero.
+On the Results tab, export the results table (CSV), the full run (JSON), detailed samples (CSV) and a text summary. Every chart has **↧ SVG** and **↧ PNG** buttons that export a white-background figure with title, axis titles, units and legend, ready for a paper. Import the complete console JSON and confirm the same timeline and results reappear. Exported zero values must stay zero.
 
 Worker records are stored in `data/console_runs/<run-id>/`:
 

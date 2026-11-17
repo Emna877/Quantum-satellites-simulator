@@ -15,7 +15,7 @@ Key establishment is modelled (message sizes, timing, key lengths); no actual en
 python -m scripts.serve_console --port 8000
 ```
 
-Open **http://127.0.0.1:8000**. The local console provides seven workspaces, a Cesium globe, shared UTC playback, baseline/scenario charts, scoped event inspection, editable run parameters, history, and JSON/CSV reports. Its Python adapter delegates calculations to the existing Orekit propagator and experiment runner; the browser displays recorded outputs. Both older CZML viewers remain available as separate examples.
+Open **http://127.0.0.1:8000**. The console has four tabs: **Globe** (full-screen Cesium Earth with the Orekit orbit, ground station and shared UTC playback), **Pass explorer** (ECDH / ML-KEM / QKD cards and baseline/scenario charts for the selected pass), **Results** (one row per scenario for ECDH, ML-KEM and QKD, with an uncertainty range and an "attack detected?" column) and **Model & assumptions** (formulas with citations, parameters and the Micius validation). Events, history and settings are in a side drawer. Tables export as CSV and charts as publication SVG/PNG. Its Python adapter delegates calculations to the existing Orekit propagator and experiment runner; the browser displays recorded outputs. Both older CZML viewers remain available as separate examples.
 
 See [UI_GUIDE.md](UI_GUIDE.md) for detailed setup, manual tests, automated checks, scientific concepts and remaining gaps. The interface explicitly labels engineering estimates: scenario overrides currently apply run-wide, prototype markers do not execute attacks, and actual cryptographic exchanges are absent. QKD key is only credited when the authenticated RF channel can carry its post-processing. No positive key count is presented as a security proof.
 
@@ -54,7 +54,7 @@ Shared settings include SIM_START_TIME (UTC), SIM_TIME_STEP, SIM_SPEED_MULTIPLIE
 
 ```powershell
 python -m scripts.check_runtime
-python -m unittest scripts.test_runtime_config scripts.test_orbit scripts.test_engine_events scripts.test_experiment_schema scripts.test_communication scripts.test_security scripts.test_console scripts.test_validation_micius
+python -m unittest scripts.test_runtime_config scripts.test_orbit scripts.test_engine_events scripts.test_experiment_schema scripts.test_communication scripts.test_security scripts.test_console scripts.test_validation_micius scripts.test_study
 node scripts/test_console.mjs
 ```
 
@@ -98,6 +98,7 @@ The enhanced viewer defaults to `cubesat_with_events.czml`; use Load CZML for cu
 - `scripts/check_runtime.py`: runtime smoke check.
 - `scripts/test_security.py`: classical/post-quantum sessions, finite-key QKD, key store, and runner security rules.
 - `scripts/test_validation_micius.py`: comparison with the published Micius satellite QKD results.
+- `scripts/test_study.py`: every-scenario results table, uncertainty sweep, detection column and model card.
 - `scripts/test_runtime_config.py`: configuration regression checks.
 - `scripts/test_orbit.py`: orbital invariants, ECEF velocity, UTC, eclipse, contact, engine, exporter, and Tunis end-to-end communication regression checks.
 - `scripts/test_engine_events.py`: engine, event, and clock regression suite.

@@ -161,6 +161,11 @@ def build_console_run(request,run_id):
         from experiments.schema import provenance
         bundle['provenance']=provenance(dict(config,jvm_path=propagator.jvm_path))
         bundle['physical_config']=config
+        # Every scenario × optical-uncertainty sweep on the same geometry, for the results table.
+        from experiments.study import run_study
+        from experiments.model_card import model_card
+        bundle['study']=run_study(propagator,station,runner_config,start,end,options['dt_s'])
+        bundle['model_card']=model_card(runner_config)
         missing=[]
         bundle=strict_numbers(bundle,missing)
         bundle['non_finite_metrics']=missing

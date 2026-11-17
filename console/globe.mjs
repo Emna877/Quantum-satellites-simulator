@@ -25,15 +25,19 @@ export class Globe {
   position.setInterpolationOptions({interpolationDegree:1,interpolationAlgorithm:C.LinearApproximation});
   this.position=position;
   this.satellite=v.entities.add({id:'satellite',name:'Quantum CubeSat · recorded Orekit state',position,
-   billboard:{image:'/console/satellite.svg',width:34,height:34,verticalOrigin:C.VerticalOrigin.CENTER,disableDepthTestDistance:Number.POSITIVE_INFINITY},
-   label:{text:'QUANTUM CUBESAT',font:'10px monospace',fillColor:C.Color.fromCssColorString('#8de9fb'),pixelOffset:new C.Cartesian2(0,-29),showBackground:true,backgroundColor:C.Color.fromCssColorString('#081726cc'),disableDepthTestDistance:Number.POSITIVE_INFINITY},
+   // Depth-tested so the Earth hides the satellite when it is on the far side.
+   billboard:{image:'/console/satellite.svg',width:34,height:34,verticalOrigin:C.VerticalOrigin.CENTER},
+   label:{text:'QUANTUM CUBESAT',font:'10px monospace',fillColor:C.Color.fromCssColorString('#8de9fb'),pixelOffset:new C.Cartesian2(0,-29),showBackground:true,backgroundColor:C.Color.fromCssColorString('#081726cc')},
    path:{show:true,width:1.8,leadTime:run.period_seconds||6000,trailTime:run.period_seconds||6000,resolution:30,material:new C.PolylineGlowMaterialProperty({glowPower:.12,color:C.Color.fromCssColorString('#57d8f5')})}});
   const track=run.telemetry.filter(p=>Number.isFinite(p.latitude_deg)&&Number.isFinite(p.longitude_deg)).map(p=>C.Cartesian3.fromDegrees(p.longitude_deg,p.latitude_deg,800));
   if(track.length>1)this.track=v.entities.add({id:'ground-track',polyline:{positions:track,width:1,arcType:C.ArcType.NONE,material:new C.PolylineDashMaterialProperty({color:C.Color.fromCssColorString('#5b91a799'),dashLength:8})}});
   if(run.station){this.stationPosition=C.Cartesian3.fromDegrees(run.station.lon_deg,run.station.lat_deg,run.station.alt_m||0);
-   this.station=v.entities.add({id:'ground-station',name:run.station.name,position:this.stationPosition,
-    point:{pixelSize:7,color:C.Color.fromCssColorString('#7be2c7'),outlineColor:C.Color.fromCssColorString('#102b2a'),outlineWidth:4,disableDepthTestDistance:Number.POSITIVE_INFINITY},
-    label:{text:run.station.name.replaceAll('_',' ').toUpperCase(),font:'10px monospace',fillColor:C.Color.fromCssColorString('#98d6c8'),pixelOffset:new C.Cartesian2(0,19),disableDepthTestDistance:Number.POSITIVE_INFINITY}});
+   // The marker is drawn 3 km up so it does not flicker into the ground, while the Earth
+   // still hides it when the station is on the far side. The link line uses the true position.
+   const marker=C.Cartesian3.fromDegrees(run.station.lon_deg,run.station.lat_deg,(run.station.alt_m||0)+3000);
+   this.station=v.entities.add({id:'ground-station',name:run.station.name,position:marker,
+    point:{pixelSize:7,color:C.Color.fromCssColorString('#7be2c7'),outlineColor:C.Color.fromCssColorString('#102b2a'),outlineWidth:4},
+    label:{text:run.station.name.replaceAll('_',' ').toUpperCase(),font:'10px monospace',fillColor:C.Color.fromCssColorString('#98d6c8'),pixelOffset:new C.Cartesian2(0,19)}});
    this.link=v.entities.add({id:'geometric-link',polyline:{positions:new C.CallbackProperty(time=>{const p=position.getValue(time);return p?[this.stationPosition,p]:[];},false),width:1.6,arcType:C.ArcType.NONE,material:C.Color.fromCssColorString('#69dfe8')}});
   }else{this.station=this.link=null;this.stationPosition=null;}
   for(const event of run.events.filter(e=>e.kind!=='contact')){

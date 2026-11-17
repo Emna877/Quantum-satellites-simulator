@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {prepareRun,physicalAt,communicationAt,stepTime,nextContact,availabilitySeconds,csvRows,serializableRun,reportText} from '../console/core.mjs';
+import {prepareRun,physicalAt,communicationAt,stepTime,nextContact,availabilitySeconds,csvRows,studyCsv,serializableRun,reportText} from '../console/core.mjs';
 
 const utc=seconds=>new Date(Date.parse('2025-11-09T12:00:00Z')+seconds*1000).toISOString();
 function fixture(){
@@ -40,6 +40,15 @@ test('Reject unaligned cases, duplicate events, false frames and non-finite geom
   const value=fixture();change(value);assert.throws(()=>prepareRun(value));
  }
 });
+test('Results-table CSV keeps zero keys, ranges and quoted detection text',()=>{
+ const study={rows:[{scenario_id:'qkd_intercept_resend',name:'QKD Intercept-Resend (Full)',qkd_key_bits_min:0,qkd_key_bits_max:0,
+  nominal:{passes:5,ecdh_passes:5,mlkem_passes:5,qkd_passes:0,qkd_key_bits:0,qkd_qber:0.258,main_abort_reason:'QBER ≥ 11 %'},
+  detection:{verdict:'detected',text:'QBER up to 29.3% ≥ 11 % → detected, QKD aborted in 5/5 passes'}}]};
+ const [header,row]=studyCsv(study).split('\r\n');
+ assert.match(header,/^scenario_id,scenario,passes,ecdh_sessions,mlkem_sessions,qkd_passes_with_key,qkd_key_bits_nominal,qkd_key_bits_min,qkd_key_bits_max/);
+ assert.equal(row,'qkd_intercept_resend,QKD Intercept-Resend (Full),5,5,5,0,0,0,0,0.258,detected,"QBER up to 29.3% ≥ 11 % → detected, QKD aborted in 5/5 passes",QBER ≥ 11 %');
+});
+test('A malformed study is rejected on import',()=>{const value=fixture();value.study={rows:'none'};assert.throws(()=>prepareRun(value));});
 test('Raw legacy channel results cannot masquerade as an orbital recording',()=>{assert.throws(()=>prepareRun({passes:[]}));});
 if(process.env.CONSOLE_RUN)test('Actual Orekit console recording has aligned cases and strict JSON',()=>{
  const run=prepareRun(JSON.parse(fs.readFileSync(process.env.CONSOLE_RUN,'utf8')));
