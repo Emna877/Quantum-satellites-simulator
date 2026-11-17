@@ -72,7 +72,8 @@ Gate: retain one UTC state/Orekit geometry; replace legacy communication proxies
 - [x] Include background light, dark counts, and detection timing windows. Dark counts and sky background rate are configurable; timing window is a parameter (coincidence window).
 - [x] Calculate detection rate and QBER consistently. Signal count, background count, sifted rate, and QBER are computed from the same link budget in `optical_link.py`.
 - [x] Add clear-sky and blocked-optical-link scenarios. `OpticalLinkConfig.cloud_blocked=True` returns zeroed metrics with `blocked_reason='cloud_blocked'`; tested in test_security.py. Partial cloud and sky-radiance models remain future work.
-- [x] Validate calculations against documented reference cases. FSPL, kTB, H2, and geometric loss formulae validated by unit tests with cited equations.
+- [x] Validate calculations against documented reference cases. FSPL, kTB, H2, and geometric loss formulae validated by unit tests with cited equations. `scripts/test_validation_micius.py` compares the optical and finite-key models with the published Micius results (Liao et al. 2017).
+- [x] Correct QBER and RF baseline physics. Background clicks count as 50 % errors and are gated by the detection window; Gaussian beam uses η = 1 − exp(−2a²/w²); RF ground station defaults to a 48 dBi (≈3 m) dish and 1 W transmitter; pass QBER is count-weighted.
 - [x] Preserve legitimate no-contact, zero-key, and protocol-abort results; document uncertainty, model limits, and unvalidated approximations. Zero-rate and abort cases tested; limitations documented in module docstrings. Asymptotic formula is labeled as such.
 
 ## 6. Security comparison
@@ -83,9 +84,10 @@ Gate: finalize the draft research questions, protocol choices, attacker capabili
 - [x] Choose classical key establishment and authentication. `security/classical_session.py`: conceptual ECDH P-256 + AES-256-GCM; auth_method configurable (psk/certificate); handshake timing modelled from propagation delay.
 - [x] Choose a QKD protocol and document assumptions. Decoy-state BB84, asymptotic (communication/qkd_model.py) and finite-key (security/qkd_finite_key.py, Tomamichel et al. 2012); both labeled with explicit limits.
 - [x] Implement sifting, error estimation, reconciliation costs, and privacy-amplification accounting. All four accounted for in qkd_model.py (asymptotic) and qkd_finite_key.py (finite-key correction term).
-- [x] Account for authenticated classical communication. ClassicalSessionConfig documents dependency; classical_auth_dependency scenario shows QKD post-processing fails when RF jammed.
+- [x] Account for authenticated classical communication. The runner enforces it: a pass yields QKD key only when the RF link is available ≥ `min_post_processing_link_s` and can carry the post-processing traffic; the key buffer only replenishes while RF is available. Authentication key consumption is not yet subtracted.
+- [x] Compare against post-quantum classical key establishment. `ClassicalSessionConfig.key_exchange` supports ECDH-P256, ML-KEM-768 and X25519+ML-KEM-768 with FIPS 203/204 message sizes; the runner records both an ECDH and an ML-KEM session per pass.
 - [x] Add protocol-appropriate secret-key calculations. Asymptotic BB84 in qkd_model.py; finite-key corrected in security/qkd_finite_key.py; 10 regression tests.
-- [x] Include finite-size effects before treating short-pass results as security estimates. `security/qkd_finite_key.py` with Tomamichel simplified bounds; `finite_key_valid=False` for n < n_min_sifted; n_min = 1000 by default.
+- [x] Include finite-size effects before treating short-pass results as security estimates. `security/qkd_finite_key.py` implements the Tomamichel et al. (2012) key-length bound (parameter-estimation sample, statistical deviation μ, ε_sec/ε_cor hashing cost) combined with GLLP decoy-state single-photon bounds. Decoy yields still use infinite statistics; a composable finite-size decoy analysis (Lim et al. 2014) remains open.
 - [x] Implement key storage, consumption, and exhaustion. `security/key_store.py`: buffer accounting with replenishment, consumption, capacity cap, and exhaustion counting.
 - [x] Use the same application AES-256-GCM profile, traffic, AAD, nonce/tag rules, authentication policy, and key-refresh policy across modes; vary key establishment explicitly. AES-256-GCM profile in ClassicalSessionConfig; overhead fraction computed per packet; session lifetime configurable.
 - [ ] Define key refresh, nonce handling, and replay protection. Nonce exhaustion not yet modelled; key refresh uses session_lifetime_s parameter only.
@@ -99,7 +101,7 @@ Gate: finalize the draft research questions, protocol choices, attacker capabili
 - [x] Pointing error. `SCENARIOS['pointing_error']`; optical_extra_loss_db=6.0 via optical_config_with_extra_loss; models ACS residuals / fine-steering mirror overrun.
 - [x] Cloud blockage. `SCENARIOS['optical_cloud_blocked']`; OpticalLinkConfig.cloud_blocked=True; tested.
 - [x] Power shortage. `SCENARIOS['power_shortage']`; rf_signal_loss_db=6.0 + PowerDrain event via _power_drain_factory; runner applies loss to RF link budget.
-- [ ] Defined QKD interception scenario. QBER elevation from background increase is a proxy; a photon-intercept-resend model is not yet implemented.
+- [x] Defined QKD interception scenario. `qkd_intercept_resend` (100 %) and `qkd_intercept_resend_partial` (20 %) scenarios; full interception gives QBER ≈ 25 % and aborts every pass. PNS, detector-blinding and Trojan-horse attacks are not modelled.
 - [ ] Forged or replayed classical messages. Authentication failure is documented as an assumption in ClassicalSessionConfig; a protocol-level replay model is not yet implemented.
 - [x] Record effects on confidentiality, integrity, authentication, and availability. ExperimentResult records RF availability, key establishment, key-store exhaustion, and QKD abort reasons per pass.
 - [x] Use reproducible seeds and repeat stochastic experiments. ScenarioDefinition.random_seed field; event factories are deterministic by construction.
@@ -134,7 +136,8 @@ UI implementation follows the requested vision without treating scientific miles
 - [x] Add an end-to-end test for one Orekit pass over Tunis. `TunisPassEndToEndTest` in scripts/test_orbit.py: 4 tests covering pass detection, geometry bounds, and communication pipeline consistency.
 - [x] Remove duplicated simulation logic after shared modules replace it. qkd.py's inline calculations replaced by communication/ modules.
 - [x] Move results into an output folder and examples into an examples folder. Legacy demo scripts moved to examples/; output paths already use data/ via config.
-- [ ] Remove unused dependencies and configuration options. requirements.txt not audited yet.
+- [x] Remove unused dependencies and configuration options. requirements.txt reduced to jpype1, numpy, python-dotenv and matplotlib; unused `optical_efficiency` and `k_sigma` options removed.
+- [x] Stop storing JARs and generated outputs in git. `python -m scripts.fetch_dependencies` downloads checksum-verified JARs from Maven Central; orekit-data stays in git for reproducibility.
 - [x] Update README capabilities and remaining approximations. See section below.
 - [x] Resolve the missing license file. MIT License added (LICENSE); copyright 2026 Emna Souayah.
 - [ ] Move ML into future work. ML was never started; the README notes it as deferred.

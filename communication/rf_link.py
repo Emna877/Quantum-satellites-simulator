@@ -26,12 +26,15 @@ class RFLinkConfig:
     """All configurable RF link parameters with explicit units."""
 
     # Transmitter (satellite downlink perspective)
-    tx_power_dbm: float = 20.0        # dBm  (100 mW)
+    tx_power_dbm: float = 30.0        # dBm  (1 W; typical small-satellite X-band transmitter)
     tx_antenna_gain_dbi: float = 10.0 # dBi  transmit antenna gain
     tx_pointing_loss_db: float = 2.0  # dB   fixed pointing offset loss
 
     # Receiver (ground station)
-    rx_antenna_gain_dbi: float = 20.0 # dBi  receive antenna gain
+    # 48 dBi ≈ 3 m parabolic dish at 10 GHz (G = η(πD/λ)², η = 0.6).  Operational
+    # X-band ground stations use 3–13 m dishes (≈ 48–60 dBi); the previous 20 dBi
+    # default (≈ 25 cm dish) made the RF link unavailable even without attacks.
+    rx_antenna_gain_dbi: float = 48.0 # dBi  receive antenna gain
     rx_pointing_loss_db: float = 2.0  # dB   fixed pointing offset loss
 
     # Channel

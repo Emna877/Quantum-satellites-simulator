@@ -1,6 +1,12 @@
 # Quantum Satellites Simulator
 
-Orekit-based satellite motion with experimental radio/QKD link calculations and Cesium visualization. The long-term goal is a reproducible satellite cybersecurity threat-analysis platform comparing classical and QKD-assisted cryptographic communication under controlled attacks. Encryption, full QKD protocols, and unified subsystem/event physics remain future work. Machine learning is deferred; see [TODO.md](TODO.md).
+Orekit-based satellite motion with radio and QKD link models and Cesium visualization. The goal is a reproducible satellite cybersecurity threat-analysis platform that compares three ways to establish a key over the same satellite pass, under controlled attacks:
+
+1. **Pre-quantum classical**: ECDH P-256 over the RF link (breakable by a future quantum computer).
+2. **Post-quantum classical**: ML-KEM-768 (NIST FIPS 203) over the RF link.
+3. **Quantum key distribution**: decoy-state BB84 over an optical link, with post-processing over the authenticated RF link.
+
+Key establishment is modelled (message sizes, timing, key lengths); no actual encryption is performed. Unified subsystem/event physics remain future work. Machine learning is deferred; see [TODO.md](TODO.md).
 
 ## Main interface: Threat Analysis Console
 
@@ -11,7 +17,7 @@ python -m scripts.serve_console --port 8000
 
 Open **http://127.0.0.1:8000**. The local console provides seven workspaces, a Cesium globe, shared UTC playback, baseline/scenario charts, scoped event inspection, editable run parameters, history, and JSON/CSV reports. Its Python adapter delegates calculations to the existing Orekit propagator and experiment runner; the browser displays recorded outputs. Both older CZML viewers remain available as separate examples.
 
-See [UI_GUIDE.md](UI_GUIDE.md) for detailed setup, manual tests, automated checks, scientific concepts and remaining gaps. The interface explicitly labels engineering estimates: scenario overrides currently apply run-wide, prototype markers do not execute attacks, actual cryptographic exchanges are absent, and the QKD authenticated classical dependency is not enforced by the runner. No positive key count is presented as a security proof.
+See [UI_GUIDE.md](UI_GUIDE.md) for detailed setup, manual tests, automated checks, scientific concepts and remaining gaps. The interface explicitly labels engineering estimates: scenario overrides currently apply run-wide, prototype markers do not execute attacks, and actual cryptographic exchanges are absent. QKD key is only credited when the authenticated RF channel can carry its post-processing. No positive key count is presented as a security proof.
 
 ## Setup
 
@@ -21,9 +27,10 @@ Use Python 3.10+ with a compatible 64-bit Java installation (Java 9+ is required
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
+python -m scripts.fetch_dependencies
 ```
 
-If the environment already works, activate it without recreating it. Keep Orekit 13.1.2 and the matching Hipparchus 4.0.2 JAR files in the project root, with the extracted data in `orekit-data/orekit-data-main`. The repository's scientific-data bundle is separate from the JAR files.
+If the environment already works, activate it without recreating it. `fetch_dependencies` downloads Orekit 13.1.2 and the matching Hipparchus 4.0.2 JAR files from Maven Central into the project root and verifies their SHA-1 checksums; the JARs are not stored in git. The Orekit data bundle (`orekit-data/orekit-data-main`) stays in git so every run uses the same Earth-orientation and ephemeris files.
 
 ## Configuration
 
@@ -47,7 +54,8 @@ Shared settings include SIM_START_TIME (UTC), SIM_TIME_STEP, SIM_SPEED_MULTIPLIE
 
 ```powershell
 python -m scripts.check_runtime
-python -m unittest scripts.test_runtime_config scripts.test_orbit scripts.test_engine_events scripts.test_experiment_schema scripts.test_communication
+python -m unittest scripts.test_runtime_config scripts.test_orbit scripts.test_engine_events scripts.test_experiment_schema scripts.test_communication scripts.test_security scripts.test_console scripts.test_validation_micius
+node scripts/test_console.mjs
 ```
 
 The checker prints the selected JVM, loads the 11 bundled JAR files and Orekit data, propagates a satellite for 60 seconds, and exits with code 0 and PASS on success. It runs in its own process because JPype cannot restart a stopped JVM in the same Python process.
@@ -80,12 +88,16 @@ The enhanced viewer defaults to `cubesat_with_events.czml`; use Load CZML for cu
 - `config/`: environment loading, paths, validation, Java discovery.
 - `simulation/`: state, clock, Orekit wrapper, engine.
 - `events/`: environmental and attack event prototypes.
-- `communication/`: distinct physical channel models — `rf_link.py` (RF link budget), `optical_link.py` (quantum optical beam model), `qkd_model.py` (asymptotic BB84 key rate).
-- `experiments/`: schema and validator for physical-baseline experiment records.
+- `communication/`: distinct physical channel models — `rf_link.py` (RF link budget), `optical_link.py` (quantum optical beam, detector gating, decoy-state and intercept-resend model), `qkd_model.py` (asymptotic BB84 key rate), `channel_effects.py` (attack → channel mapping).
+- `security/`: `classical_session.py` (ECDH and ML-KEM session models), `qkd_finite_key.py` (finite-key BB84), `key_store.py` (key buffer).
+- `experiments/`: scenarios, paired runner, console adapter, and the experiment record schema.
 - `qkd.py`: runnable link analysis example using the communication modules and the shared Orekit propagator.
 - `export_czml.py`: Orekit orbit export.
 - `export_czml_with_events.py`: Orekit orbit with demonstration event markers.
+- `scripts/fetch_dependencies.py`: downloads and verifies the Orekit/Hipparchus JARs.
 - `scripts/check_runtime.py`: runtime smoke check.
+- `scripts/test_security.py`: classical/post-quantum sessions, finite-key QKD, key store, and runner security rules.
+- `scripts/test_validation_micius.py`: comparison with the published Micius satellite QKD results.
 - `scripts/test_runtime_config.py`: configuration regression checks.
 - `scripts/test_orbit.py`: orbital invariants, ECEF velocity, UTC, eclipse, contact, engine, exporter, and Tunis end-to-end communication regression checks.
 - `scripts/test_engine_events.py`: engine, event, and clock regression suite.
@@ -93,7 +105,22 @@ The enhanced viewer defaults to `cubesat_with_events.czml`; use Load CZML for cu
 - `scripts/test_communication.py`: RF, optical, and QKD channel model unit tests.
 - `examples/`: standalone demo scripts (not part of the regression suite).
 
-A license has not yet been selected; resolving this is tracked in TODO.md section 9.
+Licensed under the MIT License; see [LICENSE](LICENSE).
+
+## Communication and security models
+
+| Model | File | Main assumptions |
+|---|---|---|
+| RF link | `communication/rf_link.py` | Friis + kTB noise; 1 W, 10 dBi satellite, 48 dBi (≈3 m dish) X-band ground station; Shannon capacity as upper bound |
+| Optical link | `communication/optical_link.py` | Gaussian beam, airmass atmosphere, fixed pointing/optics loss; background clicks gated by the detection window and wrong half the time |
+| Decoy-state single-photon bounds | `communication/optical_link.py` | Infinite-decoy limit (Lo, Ma & Chen 2005) |
+| Asymptotic key rate | `communication/qkd_model.py` | GLLP: Δ1 (1 − H2(e1)) − f H2(E) |
+| Finite-key length | `security/qkd_finite_key.py` | Tomamichel et al. (2012) error-rate bound; decoy yields with infinite statistics (not a composable decoy proof) |
+| Classical sessions | `security/classical_session.py` | ECDH-P256 / ML-KEM-768 / hybrid; FIPS 203/204 message sizes; PSK or certificate authentication |
+| QKD → RF dependency | `experiments/runner.py` | A pass yields QKD key only if the RF link is available ≥ 10 s and can carry the post-processing traffic |
+| Intercept-resend attack | `communication/optical_link.py` | Error on intercepted bits 1/4 + e_d/2; full interception gives QBER ≈ 25 % |
+
+**Validation against Micius** (Liao et al. 2017, `scripts/test_validation_micius.py`). Using the paper's published link budget, the model reproduces the measured sifted key rates (≈12 kbit/s at 645 km, ≈1 kbit/s at 1200 km) within a factor of 2, the measured QBER range (1–3 %), and the reported 300,939-bit final key of the 273 s pass within 50 %. An ideal Gaussian beam with the quoted 10 µrad divergence gives 18.6 dB diffraction loss at 1200 km, 3.4 dB less than the paper's own 22 dB estimate. The night-time sky background (500 counts/s before gating) is an assumption; the paper does not report it.
 
 ## Orbital model and verification
 
@@ -116,8 +143,8 @@ not a guarantee of physical accuracy or detection of arbitrarily short grazing p
 Orbital validation: regression checks pass, including matching positions between both
 exporters and correct final samples for a 65-second run sampled every 30 seconds.
 A 24-hour run from the default epoch produced five Tunis contacts above 5 degrees.
-The current approximate QKD model still produces zero secret keys in that scenario;
-communication-model corrections remain in TODO section 5.
+With the default parameters, four of them yield a finite-key QKD key in the baseline
+scenario (0.07–4.1 Mbit per pass); the 5.8° grazing pass aborts on finite-size statistics.
 
 ## Engine and event lifecycle
 

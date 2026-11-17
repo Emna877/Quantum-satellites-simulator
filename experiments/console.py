@@ -17,7 +17,7 @@ def defaults():
                 altitude_km=(config['orbit']['semi_major_axis']-6378137)/1000,
                 inclination_deg=config['orbit']['inclination_deg'],scenario='rf_jamming_moderate',
                 station_lat=36.8,station_lon=10.18,min_elevation_deg=5.0,
-                rf_power_dbm=20.0,rx_aperture_m=1.0,background_hz=1000.0,
+                rf_power_dbm=30.0,rx_aperture_m=1.0,background_hz=1000.0,
                 divergence_urad=10.0,source_rate_hz=1e8)
 
 
@@ -46,7 +46,8 @@ def validate_request(request):
 def catalog():
     return [dict(id=key,name=value.name,description=value.description,
                  rf_loss_db=value.rf_signal_loss_db,background_scale=value.optical_background_scale,
-                 cloud_blocked=value.optical_cloud_blocked,optical_extra_loss_db=value.optical_extra_loss_db)
+                 cloud_blocked=value.optical_cloud_blocked,optical_extra_loss_db=value.optical_extra_loss_db,
+                 intercept_resend_fraction=value.qkd_intercept_resend_fraction)
             for key,value in SCENARIOS.items()]
 
 
@@ -122,6 +123,9 @@ def build_console_run(request,run_id):
             if not window['classical_session_summary'].get('key_established'):
                 event(f'classical-{i}','Classical session estimate: failed',window['window_end'],window['window_end'],
                       'protocol',['rf_data'],window['classical_session_summary'].get('failure_reason') or 'Session not established.',severity='WARNING',pass_index=i)
+            if finite.get('classical_dependency',{}).get('satisfied') is False:
+                event(f'dependency-{i}','QKD post-processing blocked',window['window_end'],window['window_end'],'protocol',['rf_data','quantum_optical'],
+                      'QKD sifting, error correction and privacy amplification need the authenticated RF channel, which was unavailable for this pass.',severity='WARNING',pass_index=i)
             for j,prototype in enumerate(scenario.build_events(simulation_start(window['window_start']),simulation_start(window['window_end']))):
                 event(f'prototype-{i}-{j}',prototype.event_type.value.replace('_',' ').title()+' · marker only',iso(prototype.timestamp),
                       iso(prototype.timestamp+timedelta(seconds=prototype.duration_seconds)),'prototype',['spacecraft'],
@@ -129,6 +133,9 @@ def build_console_run(request,run_id):
         if scenario.rf_signal_loss_db:
             event('rf-condition','RF loss override',iso(start),iso(end),'disturbance',['rf_data'],
                   f'Existing runner applies {scenario.rf_signal_loss_db:g} dB extra RF loss throughout the experiment. Not a spatial jammer or cryptographic break.',severity='HIGH')
+        if scenario.qkd_intercept_resend_fraction:
+            event('qkd-intercept','QKD intercept-resend',iso(start),iso(end),'disturbance',['quantum_optical'],
+                  f'Eavesdropper intercepts {scenario.qkd_intercept_resend_fraction:.0%} of signal photons, measures in a random basis and resends. Each intercepted sifted bit is wrong with probability 1/4.',severity='CRITICAL')
         if scenario.optical_background_scale>1 or scenario.optical_cloud_blocked or scenario.optical_extra_loss_db:
             event('optical-condition','Optical disturbance',iso(start),iso(end),'disturbance',['quantum_optical'],
                   'Run-wide optical configuration override: background, blockage or additional loss. RF metrics are computed separately.',severity='HIGH')
@@ -140,12 +147,12 @@ def build_console_run(request,run_id):
         limitations=list(selected.model_limitations)+[
             'Playback is a simulation recording, not a live satellite feed.',
             'Scenario channel overrides apply to the entire run; prototype event-marker times do not gate those overrides.',
-            'Classical ECDH/AES-GCM is an engineering estimate; no messages are actually encrypted or authenticated.',
-            'The authenticated QKD classical protocol channel is not executed or enforced by this runner.',
-            'Finite-key estimates are simplified model outputs, not a composable security proof.',
-            'Key buffer is available only as end-of-pass snapshots and uses asymptotic replenishment; it is not a validated usable-key timeline.',
+            'Classical ECDH and ML-KEM sessions are engineering estimates; no messages are actually encrypted or authenticated.',
+            'The QKD dependency on the authenticated RF channel is enforced as a time and traffic check; the post-processing messages themselves are not executed.',
+            'Finite-key estimates use the Tomamichel et al. (2012) bound with infinite-statistics decoy yields, not a composable finite-size decoy proof.',
+            'Key buffer is available only as end-of-pass snapshots and uses asymptotic replenishment gated by RF availability; it is not a validated usable-key timeline.',
             'The runner does not export a corrupted navigation-position vector; no spoofed orbit is drawn.',
-            'Optical aperture/divergence, background and QBER models still require independent scientific validation.']
+            'Optical link model is checked against the Micius (Liao et al. 2017) link budget in scripts/test_validation_micius.py; other ground stations and daytime operation are not validated.']
         bundle=dict(format=FORMAT,run_id=run_id,request=options,station=station,
             start_time=iso(start),end_time=iso(end),period_seconds=propagator.period_seconds,
             frames=dict(position='ITRF',velocity='ITRF'),telemetry=telemetry,events=events,

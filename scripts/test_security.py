@@ -272,11 +272,44 @@ class TestBB84FiniteKeyMetrics(unittest.TestCase):
         self.assertAlmostEqual(r['wcp']['P1'], 0.1 * math.exp(-0.1), places=8)
 
     def test_wcp_high_qber_aborts_via_e1_ub(self):
-        # mu=0.1, QBER=5% → e1_ub ≈ 0.55 > 0.5 → r_asym=0 → abort
-        cfg = BB84FiniteKeyConfig(wcp_mean_photon_number=0.1)
-        r = bb84_finite_key_metrics(1e6, 0.05, 600.0, cfg)
+        # mu=0.8, QBER=9% → Δ1 = e^−0.8 ≈ 0.45, e1 ≤ 0.09/0.45 ≈ 0.20
+        # → 0.45 (1 − H2(0.20)) − 1.16 H2(0.09) < 0 → abort
+        cfg = BB84FiniteKeyConfig(wcp_mean_photon_number=0.8)
+        r = bb84_finite_key_metrics(1e6, 0.09, 600.0, cfg)
         self.assertEqual(r['key_status'], 'aborted')
         self.assertIn('phase error', r['abort_reason'])
+
+    def test_wcp_low_qber_keeps_key_with_correct_decoy_bound(self):
+        # The single-photon fraction of *detections* is e^−μ (≈ 0.90 for μ = 0.1),
+        # not the fraction of *pulses* μe^−μ (≈ 0.09).
+        cfg = BB84FiniteKeyConfig(wcp_mean_photon_number=0.1)
+        r = bb84_finite_key_metrics(1e6, 0.05, 600.0, cfg)
+        self.assertEqual(r['key_status'], 'succeeded')
+        self.assertAlmostEqual(r['wcp']['single_photon_fraction'], math.exp(-0.1), places=12)
+
+    def test_no_decoy_gives_no_key(self):
+        # Without decoy states, multi-photon pulses dominate detections at
+        # satellite losses (photon-number splitting), so no key can be proven.
+        cfg = BB84FiniteKeyConfig(wcp_mean_photon_number=0.5, use_decoy_state=False)
+        r = bb84_finite_key_metrics(1e6, 0.01, 600.0, cfg)
+        self.assertEqual(r['key_status'], 'aborted')
+
+    def test_tomamichel_statistical_deviation(self):
+        from security.qkd_finite_key import _statistical_deviation
+        n, k, eps = 1e6, 1e5, 1e-9
+        expected = math.sqrt((n + k) / (n * k) * (k + 1) / k * math.log(2 / eps))
+        self.assertAlmostEqual(_statistical_deviation(n, k, eps), expected, places=15)
+
+    def test_key_length_matches_tomamichel_formula(self):
+        cfg = BB84FiniteKeyConfig()
+        r = bb84_finite_key_metrics(1e4, 0.02, 100.0, cfg)
+        n_total = 1e6
+        k, n = 0.1 * n_total, 0.9 * n_total
+        from security.qkd_finite_key import _h2, _statistical_deviation
+        mu = _statistical_deviation(n, k, cfg.eps_sec)
+        expected = (n * (1 - _h2(0.02 + mu)) - cfg.ec_efficiency * n * _h2(0.02)
+                    - math.log2(2 / (cfg.eps_sec ** 2 * cfg.eps_cor)))
+        self.assertAlmostEqual(r['secure_key_bits'], expected, places=6)
 
     def test_wcp_fewer_bits_than_sps_for_same_qber(self):
         # With low QBER both succeed; WCP must produce fewer bits
@@ -406,6 +439,119 @@ class TestScenarioCatalogue(unittest.TestCase):
         end = start + timedelta(minutes=10)
         events = s.build_events(start, end)
         self.assertIsInstance(events, list)
+
+
+# ---------------------------------------------------------------------------
+# Post-quantum classical session (ML-KEM)
+# ---------------------------------------------------------------------------
+
+class TestPostQuantumSession(unittest.TestCase):
+
+    def _call(self, key_exchange, auth='psk', capacity=1e6):
+        return classical_key_establishment(
+            link_available=True, snr_db=20.0, range_m=700e3, contact_duration_s=600.0,
+            cfg=ClassicalSessionConfig(key_exchange=key_exchange, auth_method=auth),
+            capacity_bps=capacity,
+        )
+
+    def test_ecdh_is_not_quantum_resistant(self):
+        r = self._call('ECDH-P256')
+        self.assertTrue(r['key_established'])
+        self.assertFalse(r['quantum_resistant'])
+        self.assertTrue(r['harvest_now_decrypt_later_exposed'])
+        self.assertEqual(r['model_id'], 'classical_ecdh_aes256gcm')
+
+    def test_mlkem_is_quantum_resistant(self):
+        r = self._call('ML-KEM-768')
+        self.assertTrue(r['key_established'])
+        self.assertTrue(r['quantum_resistant'])
+        self.assertFalse(r['harvest_now_decrypt_later_exposed'])
+        self.assertEqual(r['model_id'], 'classical_mlkem768_aes256gcm')
+
+    def test_fips203_message_sizes(self):
+        # ML-KEM-768: encapsulation key 1184 B + ciphertext 1088 B; PSK MACs 2 × 32 B
+        self.assertEqual(self._call('ML-KEM-768')['handshake_bytes'], 1184 + 1088 + 64)
+        self.assertEqual(self._call('ECDH-P256')['handshake_bytes'], 130 + 64)
+
+    def test_certificate_auth_with_ecdsa_is_not_quantum_resistant(self):
+        r = self._call('ECDH-P256', auth='certificate')
+        self.assertEqual(r['auth_scheme'], 'ECDSA-P256')
+        self.assertFalse(r['quantum_resistant'])
+
+    def test_mldsa_certificates_make_handshake_larger_and_slower(self):
+        pqc = self._call('ML-KEM-768', auth='certificate', capacity=1e5)
+        ecc = self._call('ECDH-P256', auth='certificate', capacity=1e5)
+        self.assertEqual(pqc['auth_scheme'], 'ML-DSA-65')
+        self.assertTrue(pqc['quantum_resistant'])
+        self.assertGreater(pqc['handshake_bytes'], 10 * ecc['handshake_bytes'])
+        self.assertGreater(pqc['handshake_duration_s'], ecc['handshake_duration_s'])
+
+    def test_unknown_key_exchange_rejected(self):
+        with self.assertRaises(ValueError):
+            ClassicalSessionConfig(key_exchange='RSA-1024').validate()
+
+
+# ---------------------------------------------------------------------------
+# Runner: QKD → authenticated RF dependency and intercept-resend
+# ---------------------------------------------------------------------------
+
+class _FakePropagator:
+    """Overhead pass at fixed geometry; avoids starting the JVM."""
+
+    def __init__(self, start, duration_s):
+        self.window = {'start': start, 'end': start + timedelta(seconds=duration_s)}
+
+    def contact_windows(self, start, end, station, min_elevation_deg):
+        return [self.window]
+
+    def station_geometry(self, t, station):
+        return {'range_m': 600e3, 'elev_deg': 60.0, 'azimuth_deg': 0.0}
+
+
+from datetime import datetime, timedelta, timezone
+
+
+class TestRunnerSecurityRules(unittest.TestCase):
+
+    def _run(self, scenario_key):
+        from experiments.runner import ExperimentRunner
+        from experiments.scenarios import SCENARIOS
+        start = datetime(2025, 11, 9, 12, 0, 0, tzinfo=timezone.utc)
+        prop = _FakePropagator(start, 300.0)
+        result = ExperimentRunner(prop, {'name': 'test'}, SCENARIOS[scenario_key]).run(
+            start, start + timedelta(minutes=10), dt_s=30.0)
+        return result.passes[0]
+
+    def test_baseline_produces_qkd_key_and_both_classical_sessions(self):
+        p = self._run('baseline')
+        self.assertEqual(p['qkd_finite_pass']['key_status'], 'succeeded')
+        self.assertTrue(p['qkd_finite_pass']['classical_dependency']['satisfied'])
+        self.assertTrue(p['classical_session_summary']['key_established'])
+        self.assertTrue(p['pqc_session_summary']['key_established'])
+        self.assertEqual(p['pqc_session_summary']['key_exchange'], 'ML-KEM-768')
+
+    def test_rf_jamming_blocks_qkd_post_processing(self):
+        p = self._run('classical_auth_dependency')
+        # Photons still arrive on the clear optical channel ...
+        self.assertTrue(all(s['optical']['qber'] < 0.11 for s in p['samples']))
+        # ... but no key can be distilled without the authenticated RF channel.
+        self.assertEqual(p['qkd_finite_pass']['key_status'], 'aborted')
+        self.assertFalse(p['qkd_finite_pass']['classical_dependency']['satisfied'])
+        self.assertIn('Authenticated classical channel', p['qkd_finite_pass']['abort_reason'])
+        self.assertEqual(p['key_store_snapshot']['current_bits'], 0)
+
+    def test_full_intercept_resend_raises_qber_to_quarter_and_aborts(self):
+        p = self._run('qkd_intercept_resend')
+        self.assertGreater(p['qkd_finite_pass']['qber'], 0.24)
+        self.assertEqual(p['qkd_finite_pass']['key_status'], 'aborted')
+        self.assertIn('QBER', p['qkd_finite_pass']['abort_reason'])
+        # RF channel is unaffected by an attack on the quantum channel
+        self.assertTrue(p['classical_session_summary']['key_established'])
+
+    def test_partial_intercept_resend_shrinks_key(self):
+        base = self._run('baseline')['qkd_finite_pass']['secure_key_bits']
+        partial = self._run('qkd_intercept_resend_partial')['qkd_finite_pass']['secure_key_bits']
+        self.assertLess(partial, base)
 
 
 if __name__ == '__main__':

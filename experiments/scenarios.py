@@ -39,6 +39,7 @@ class ScenarioDefinition:
     optical_background_scale: float = 1.0   # multiplier on sky background
     optical_cloud_blocked: bool = False     # hard optical block
     optical_extra_loss_db: float = 0.0      # additional optical path loss (pointing error, etc.)
+    qkd_intercept_resend_fraction: float = 0.0  # fraction of signal photons intercepted and resent
 
     def build_events(self, contact_start: datetime, contact_end: datetime) -> list:
         events = []
@@ -167,6 +168,29 @@ SCENARIOS: Dict[str, ScenarioDefinition] = {
         event_factories=[_laser_dazzle_factory(severity=2)],
     ),
 
+    'qkd_intercept_resend': ScenarioDefinition(
+        name='QKD Intercept-Resend (Full)',
+        description=(
+            'An eavesdropper intercepts every signal photon, measures it in a '
+            'randomly chosen basis and resends her result.  Half of her basis '
+            'guesses are wrong, so a quarter of the sifted bits disagree: QBER '
+            'rises to about 25 % and the QKD protocol must abort.  This is the '
+            'textbook demonstration that eavesdropping on the quantum channel is '
+            'detectable.  The RF channel is unaffected.'
+        ),
+        qkd_intercept_resend_fraction=1.0,
+    ),
+
+    'qkd_intercept_resend_partial': ScenarioDefinition(
+        name='QKD Intercept-Resend (20 %)',
+        description=(
+            'An eavesdropper intercepts 20 % of the signal photons.  QBER rises by '
+            'about 5 percentage points.  Privacy amplification removes the leaked '
+            'information, so the secure key shrinks but may remain positive.'
+        ),
+        qkd_intercept_resend_fraction=0.2,
+    ),
+
     'optical_cloud_blocked': ScenarioDefinition(
         name='Optical Path Blocked (Cloud)',
         description=(
@@ -192,11 +216,11 @@ SCENARIOS: Dict[str, ScenarioDefinition] = {
     'classical_auth_dependency': ScenarioDefinition(
         name='Classical Authentication Dependency',
         description=(
-            'Baseline scenario demonstrating that QKD requires an authenticated '
-            'classical channel for its own protocol messages.  If the classical '
-            'channel is unavailable, QKD cannot complete its post-processing '
-            'even if photons are received.  This scenario applies full RF jamming '
-            'to show that QKD availability depends on classical availability.'
+            'Demonstrates that QKD requires an authenticated classical channel '
+            'for its own protocol messages.  Full RF jamming blocks the RF link; '
+            'photons are still detected on the clear optical link, but the runner '
+            'aborts every pass because sifting, error correction and privacy '
+            'amplification cannot be carried out.'
         ),
         rf_signal_loss_db=40.0,
         event_factories=[_jamming_factory(severity=4)],

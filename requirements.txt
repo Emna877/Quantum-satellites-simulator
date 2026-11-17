@@ -1,15 +1,7 @@
-fastapi
-uvicorn[standard]
-numpy
-scipy
-pandas
-scikit-learn
+# Runtime
+jpype1          # Java bridge to Orekit / Hipparchus (JARs: python -m scripts.fetch_dependencies)
+numpy           # orbital state vectors
+python-dotenv   # optional .env configuration
+
+# Plots (scripts/plot_pass.py)
 matplotlib
-jupyter
-jpype1
-websockets
-# Optional / domain-specific (uncomment if used)
-# qiskit
-# tensorflow
-# torch
-python-dotenv

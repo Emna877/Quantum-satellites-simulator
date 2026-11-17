@@ -222,10 +222,52 @@ class TestOpticalLinkMetrics(unittest.TestCase):
         with self.assertRaises(ValueError):
             optical_link_metrics(700e3, 45.0, bad)
 
-    def test_sifted_count_is_fraction_of_signal(self):
+    def test_sifted_count_is_fraction_of_all_clicks(self):
+        # Background clicks are sifted too; they are what raises the QBER.
         r = optical_link_metrics(700e3, 45.0, self.cfg)
         self.assertAlmostEqual(r['sifted_count_hz'],
-                               r['signal_count_hz'] * self.cfg.sifting_fraction, places=10)
+                               r['total_count_hz'] * self.cfg.sifting_fraction, places=10)
+
+    def test_background_clicks_are_wrong_half_the_time(self):
+        # Pure background (no signal) must give QBER 0.5, and half the background
+        # fraction must be added to the misalignment contribution.
+        r = optical_link_metrics(700e3, 45.0, self.cfg)
+        s, b = r['signal_count_hz'], r['background_count_hz']
+        expected = (self.cfg.misalignment_error * s + 0.5 * b) / (s + b)
+        self.assertAlmostEqual(r['qber'], expected, places=12)
+
+    def test_timing_gate_reduces_background(self):
+        from dataclasses import replace
+        wide = replace(self.cfg, timing_resolution_s=1e-8)   # window = full 10 ns slot
+        narrow = replace(self.cfg, timing_resolution_s=1e-9)
+        r_wide = optical_link_metrics(700e3, 45.0, wide)
+        r_narrow = optical_link_metrics(700e3, 45.0, narrow)
+        self.assertAlmostEqual(r_wide['background_count_hz'], 1100.0, places=6)
+        self.assertAlmostEqual(r_narrow['background_count_hz'], 110.0, places=6)
+        self.assertLess(r_narrow['qber'], r_wide['qber'])
+
+    def test_gaussian_geometric_loss_formula(self):
+        # η = 1 − exp(−2 a²/w²) for a 1 m aperture and a 7 m beam radius
+        from dataclasses import replace
+        cfg = replace(self.cfg, rx_aperture_m=1.0, beam_divergence_half_angle_rad=10e-6)
+        eta = 1 - math.exp(-2 * 0.5 ** 2 / 7.0 ** 2)
+        self.assertAlmostEqual(geometric_loss_db(700e3, cfg), -10 * math.log10(eta), places=9)
+
+    def test_full_intercept_resend_gives_quarter_error(self):
+        from dataclasses import replace
+        cfg = replace(self.cfg, misalignment_error=0.0, dark_counts_hz=0.0, sky_background_hz=0.0,
+                      intercept_resend_fraction=1.0)
+        r = optical_link_metrics(700e3, 45.0, cfg)
+        self.assertAlmostEqual(r['qber'], 0.25, places=12)
+        self.assertFalse(r['link_usable'])
+
+    def test_decoy_single_photon_fraction_for_wcp(self):
+        # For μη ≪ 1 and negligible background, Δ1 = Q1/Qμ → e^−μ.
+        from dataclasses import replace
+        cfg = replace(self.cfg, mean_photon_number=0.5, dark_counts_hz=0.0, sky_background_hz=0.0)
+        r = optical_link_metrics(700e3, 45.0, cfg)
+        self.assertAlmostEqual(r['single_photon_fraction'], math.exp(-0.5), places=3)
+        self.assertAlmostEqual(r['single_photon_qber'], cfg.misalignment_error, places=9)
 
 
 class TestBinaryEntropy(unittest.TestCase):

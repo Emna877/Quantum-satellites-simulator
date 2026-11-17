@@ -9,9 +9,11 @@ export function chart({title,unit,series,start,end,events=[],seek}){
  const all=series.flatMap(s=>s.points.filter(p=>p.time>=start&&p.time<=end&&finite(p.value)));
  if(!all.length){const empty=document.createElement('div');empty.className='chart-empty';empty.textContent='Not recorded for this interval.\nNo values have been substituted.';card.append(empty);return card;}
  const W=620,H=190,L=52,R=12,T=17,B=29;
- let low=Math.min(...all.map(p=>p.value)),high=Math.max(...all.map(p=>p.value));
+ let low=Math.min(...all.map(p=>p.value)),high=Math.max(...all.map(p=>p.value));const nonNegative=low>=0;
  if(low===high){const pad=Math.max(1,Math.abs(low)*.1);low=Math.min(0,low-pad);high+=pad;}
  else{const pad=(high-low)*.1;low-=pad;high+=pad;}
+ // Rates, counts and losses cannot be negative; padding must not suggest otherwise.
+ if(nonNegative)low=Math.max(0,low);
  const x=t=>L+(t-start)/(end-start)*(W-L-R),y=v=>T+(high-v)/(high-low)*(H-T-B);
  const svg=node('svg',{viewBox:`0 0 ${W} ${H}`,role:'img','aria-label':`${title} over UTC time`});
  for(let i=0;i<4;i++){const v=low+(high-low)*i/3;svg.append(node('line',{x1:L,y1:y(v),x2:W-R,y2:y(v),stroke:'#233344','stroke-width':.7}),node('text',{x:L-8,y:y(v)+3,'text-anchor':'end',fill:'#768fa5','font-size':9,'font-family':'monospace'},compact(v)));}

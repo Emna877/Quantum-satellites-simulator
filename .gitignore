@@ -57,13 +57,12 @@ orbit_positions.csv
 telemetry.csv
 events.json
 
-# Java
+# Java (Orekit/Hipparchus JARs come from Maven Central: python -m scripts.fetch_dependencies)
 *.class
 *.jar
 hs_err_pid*
 
-# Orekit data (if large, uncomment to ignore)
-# orekit-data/
+# Orekit data stays in git so every run uses the same Earth-orientation and ephemeris files.
 
 # Testing
 .pytest_cache/

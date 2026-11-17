@@ -23,6 +23,12 @@ Design rules (from ARCHITECTURE.md)
 - Zero-key and abort results are valid outcomes and are preserved in records.
 - finite_key_valid=False records are kept; the UI must not replace them with
   positive values.
+- QKD post-processing (sifting, error correction, privacy amplification) runs
+  over the authenticated classical RF channel.  A pass produces QKD key only if
+  that channel is available long enough to carry the post-processing traffic;
+  otherwise the pass result is aborted even when photons were detected.
+- The classical pipeline is evaluated twice per pass: with pre-quantum ECDH and
+  with post-quantum ML-KEM, so QKD is compared against both baselines.
 
 Usage
 -----
@@ -55,6 +61,7 @@ from communication.channel_effects import (
     rf_config_with_jamming,
     optical_config_with_background_increase,
     optical_config_with_extra_loss,
+    optical_config_with_intercept_resend,
 )
 from security.classical_session import ClassicalSessionConfig, classical_key_establishment
 from security.qkd_finite_key import BB84FiniteKeyConfig, bb84_finite_key_metrics
@@ -70,8 +77,13 @@ class RunnerConfig:
     qkd_asymptotic: QKDModelConfig = field(default_factory=QKDModelConfig)
     qkd_finite: BB84FiniteKeyConfig = field(default_factory=BB84FiniteKeyConfig)
     classical_session: ClassicalSessionConfig = field(default_factory=ClassicalSessionConfig)
+    pqc_session: ClassicalSessionConfig = field(
+        default_factory=lambda: ClassicalSessionConfig(key_exchange='ML-KEM-768'))
     key_store: KeyStoreConfig = field(default_factory=KeyStoreConfig)
     min_elevation_deg: float = 5.0
+    # QKD post-processing over the authenticated RF channel
+    min_post_processing_link_s: float = 10.0   # minimum RF-available time in the pass
+    post_processing_bits_per_detection: float = 2.0  # detection index + basis announcement
 
 
 @dataclass
@@ -105,8 +117,9 @@ class PassRecord:
     samples: List[dict]           # list of SampleRecord.to_dict() for each sample in this pass
     # Finite-key totals (accumulate over the whole pass, not per sample)
     qkd_finite_pass: dict
-    # Classical session established?
+    # Classical session established? (pre-quantum ECDH and post-quantum ML-KEM)
     classical_session_summary: dict
+    pqc_session_summary: dict
     # Key-store state at end of pass
     key_store_snapshot: dict
 
@@ -151,14 +164,19 @@ class ExperimentResult:
 _LIMITATIONS = [
     "QKD key rate is asymptotic (communication/qkd_model.py) or finite-key corrected "
     "(security/qkd_finite_key.py); finite_key_valid=False means no security claim.",
-    "Finite-key model uses simplified Chernoff bounds; a rigorous composable proof is not included.",
+    "Finite-key model applies the Tomamichel et al. (2012) error-rate bound; decoy-state "
+    "yields use infinite statistics, so this is not a composable finite-size decoy proof.",
     "RF link budget uses fixed pointing loss; no rain fade, Doppler, or fading model.",
     "Optical link uses far-field Gaussian beam; no seeing, partial cloud, or wavefront error.",
-    "Classical session model is a protocol-engineering model; no actual cryptographic operations.",
+    "Classical session model (ECDH and ML-KEM) is a protocol-engineering model; no actual "
+    "cryptographic operations.",
     "Key-store consumption rate is constant; traffic shaping or burst models are not included.",
     "Two-body Keplerian orbit; no J2, drag, or solar radiation pressure.",
     "Attack effects are deterministic surrogate presets; not calibrated spacecraft physics.",
-    "QKD classical post-processing authentication overhead is not subtracted from key budget.",
+    "QKD post-processing requires the RF channel (time and traffic check); its authentication "
+    "key consumption is not subtracted from the key budget.",
+    "Intercept-resend is the only eavesdropping attack modelled; PNS, detector blinding and "
+    "Trojan-horse attacks are not.",
     "Navigation spoofing affects reported position estimate; true Orekit orbit is unmodified.",
 ]
 
@@ -228,7 +246,7 @@ class ExperimentRunner:
             duration_s = (pass_end - pass_start).total_seconds()
             total_contact_s += duration_s
 
-            samples, finite_pass, classical_summary = self._run_pass(
+            samples, finite_pass, classical_summary, pqc_summary = self._run_pass(
                 pass_start, pass_end, dt_s, all_events, key_store
             )
 
@@ -240,6 +258,7 @@ class ExperimentRunner:
                 "samples": samples,
                 "qkd_finite_pass": finite_pass,
                 "classical_session_summary": classical_summary,
+                "pqc_session_summary": pqc_summary,
                 "key_store_snapshot": key_store.snapshot(),
             })
 
@@ -260,14 +279,40 @@ class ExperimentRunner:
             model_limitations=_LIMITATIONS,
         )
 
-    def _run_pass(self, pass_start, pass_end, dt_s, events, key_store):
-        """Sample one contact window and return (samples, finite_key_pass_result, classical_summary)."""
-        duration_s = (pass_end - pass_start).total_seconds()
+    def _channel_configs(self):
+        """Apply the scenario's run-wide disturbances to the channel configs."""
+        sc = self._scenario
+        rf_cfg = rf_config_with_jamming(self._cfg.rf, sc.rf_signal_loss_db)
+        opt_cfg = self._cfg.optical
+        if sc.optical_cloud_blocked:
+            from dataclasses import replace
+            opt_cfg = replace(opt_cfg, cloud_blocked=True)
+        if sc.optical_background_scale > 1.0:
+            opt_cfg = optical_config_with_background_increase(opt_cfg, sc.optical_background_scale)
+        if sc.optical_extra_loss_db > 0.0:
+            opt_cfg = optical_config_with_extra_loss(opt_cfg, sc.optical_extra_loss_db)
+        if sc.qkd_intercept_resend_fraction > 0.0:
+            opt_cfg = optical_config_with_intercept_resend(opt_cfg, sc.qkd_intercept_resend_fraction)
+        return rf_cfg, opt_cfg
 
-        # Accumulate sifted bits for the finite-key calculation over the whole pass
-        total_sifted_hz_sum = 0.0
-        total_qber_sum = 0.0
-        n_optical_samples = 0
+    def _run_pass(self, pass_start, pass_end, dt_s, events, key_store):
+        """Sample one contact window.
+
+        Returns (samples, finite_key_pass_result, ecdh_summary, pqc_summary).
+        """
+        duration_s = (pass_end - pass_start).total_seconds()
+        rf_cfg, opt_cfg = self._channel_configs()
+        sc = self._scenario
+
+        # Count-weighted accumulators for the whole-pass finite-key calculation
+        sifted_sum = 0.0          # Σ sifted rate
+        errors_sum = 0.0          # Σ sifted rate × QBER
+        single_sum = 0.0          # Σ sifted rate × Δ1
+        single_err_sum = 0.0      # Σ sifted rate × Δ1 × e1
+        detections_sum = 0.0      # Σ total click rate
+        rf_available_s = 0.0
+        rf_capacity_bits = 0.0
+        n_samples = 0
         samples = []
 
         t = pass_start
@@ -277,44 +322,34 @@ class ExperimentRunner:
             elev_deg = geom['elev_deg']
             t_s = (t - pass_start).total_seconds()
 
-            # Determine active disturbances at this sample
-            rf_loss_db = self._scenario.rf_signal_loss_db
-            bg_scale = self._scenario.optical_background_scale
-            cloud = self._scenario.optical_cloud_blocked
-            extra_opt_loss = self._scenario.optical_extra_loss_db
-
-            # Apply to channel configs
-            rf_cfg = rf_config_with_jamming(self._cfg.rf, rf_loss_db)
-            opt_cfg = self._cfg.optical
-            if cloud:
-                from dataclasses import replace
-                opt_cfg = replace(opt_cfg, cloud_blocked=True)
-            if bg_scale > 1.0:
-                opt_cfg = optical_config_with_background_increase(opt_cfg, bg_scale)
-            if extra_opt_loss > 0.0:
-                opt_cfg = optical_config_with_extra_loss(opt_cfg, extra_opt_loss)
-
-            # Classical RF
             rf = rf_link_budget(range_m, rf_cfg)
-
-            # Optical / QKD
             opt = optical_link_metrics(range_m, elev_deg, opt_cfg)
-            qkd_asym = qkd_key_metrics(opt['sifted_count_hz'], opt['qber'], self._cfg.qkd_asymptotic)
+            qkd_asym = qkd_key_metrics(opt['sifted_count_hz'], opt['qber'], self._cfg.qkd_asymptotic,
+                                       opt['single_photon_fraction'], opt['single_photon_qber'])
 
-            # Accumulate for finite-key pass total
-            total_sifted_hz_sum += opt['sifted_count_hz']
-            total_qber_sum += opt['qber']
-            n_optical_samples += 1
+            sifted = opt['sifted_count_hz']
+            sifted_sum += sifted
+            errors_sum += sifted * opt['qber']
+            single_sum += sifted * opt['single_photon_fraction']
+            single_err_sum += sifted * opt['single_photon_fraction'] * opt['single_photon_qber']
+            detections_sum += opt['total_count_hz']
+            if rf['available']:
+                rf_available_s += dt_s
+                rf_capacity_bits += (rf['shannon_capacity_bps']
+                                     * self._cfg.classical_session.link_coding_efficiency * dt_s)
+            n_samples += 1
 
             # Per-sample finite-key estimate (uses dt_s as the interval)
             qkd_fin_sample = bb84_finite_key_metrics(
-                opt['sifted_count_hz'], opt['qber'], dt_s, self._cfg.qkd_finite
+                sifted, opt['qber'], dt_s, self._cfg.qkd_finite,
+                opt['single_photon_fraction'], opt['single_photon_qber'],
             )
 
-            # Key store: replenish from asymptotic rate, consume at data rate
+            # Key store: replenish only while the authenticated classical channel
+            # can carry post-processing; consume at data rate while transmitting.
             key_store.update(
                 dt_s=dt_s,
-                replenishment_rate_bit_s=qkd_asym['secret_key_rate_bit_s'],
+                replenishment_rate_bit_s=qkd_asym['secret_key_rate_bit_s'] if rf['available'] else 0.0,
                 transmitting=rf['available'],
             )
 
@@ -328,45 +363,81 @@ class ExperimentRunner:
                 "optical": opt,
                 "qkd_asymptotic": qkd_asym,
                 "qkd_finite_sample": qkd_fin_sample,
-                "rf_jamming_db": rf_loss_db,
-                "optical_background_scale": bg_scale,
-                "optical_cloud_blocked": cloud,
+                "qkd_classical_channel_available": rf['available'],
+                "rf_jamming_db": sc.rf_signal_loss_db,
+                "optical_background_scale": sc.optical_background_scale,
+                "optical_cloud_blocked": sc.optical_cloud_blocked,
+                "qkd_intercept_resend_fraction": sc.qkd_intercept_resend_fraction,
             })
 
             t += timedelta(seconds=dt_s)
             if t > pass_end and (t - timedelta(seconds=dt_s)) < pass_end:
                 break
 
-        # Finite-key analysis over the whole pass
-        avg_sifted = total_sifted_hz_sum / n_optical_samples if n_optical_samples else 0.0
-        avg_qber = total_qber_sum / n_optical_samples if n_optical_samples else 0.5
+        # Finite-key analysis over the whole pass.  Pass statistics are weighted
+        # by detection counts: low-elevation samples with few clicks contribute
+        # few bits, as in a real pass.
+        avg_sifted = sifted_sum / n_samples if n_samples else 0.0
+        pass_qber = errors_sum / sifted_sum if sifted_sum > 0 else 0.5
+        pass_delta1 = single_sum / sifted_sum if sifted_sum > 0 else 0.0
+        pass_e1 = single_err_sum / single_sum if single_sum > 0 else 0.5
         finite_pass = bb84_finite_key_metrics(
-            avg_sifted, avg_qber, duration_s, self._cfg.qkd_finite
+            avg_sifted, pass_qber, duration_s, self._cfg.qkd_finite, pass_delta1, pass_e1,
         )
         finite_pass["note"] = (
-            "Computed from pass-average sifted rate and QBER over "
+            "Computed from count-weighted pass QBER and pass-average sifted rate over "
             f"{duration_s:.0f} s.  Instantaneous variation is in per-sample records."
         )
+
+        # QKD depends on the authenticated classical channel for post-processing.
+        detections = detections_sum / n_samples * duration_s if n_samples else 0.0
+        pp_bits = (detections * self._cfg.post_processing_bits_per_detection
+                   + finite_pass['n_key_bits'] * self._cfg.qkd_finite.ec_efficiency * _h2(pass_qber))
+        dependency = {
+            "channel": "rf_data (authenticated classical)",
+            "rf_available_s": rf_available_s,
+            "required_s": self._cfg.min_post_processing_link_s,
+            "post_processing_bits": pp_bits,
+            "rf_deliverable_bits": rf_capacity_bits,
+        }
+        dependency["satisfied"] = (rf_available_s >= self._cfg.min_post_processing_link_s
+                                   and rf_capacity_bits >= pp_bits)
+        finite_pass["classical_dependency"] = dependency
+        if not dependency["satisfied"] and finite_pass["key_status"] == "succeeded":
+            finite_pass.update(
+                key_status="aborted",
+                secure_key_bits=0.0,
+                secure_key_rate_bit_s=0.0,
+                finite_key_valid=False,
+                abort_reason=(
+                    "Authenticated classical channel unavailable: QKD post-processing "
+                    "(sifting, error correction, privacy amplification) needs the RF link; "
+                    f"RF available {rf_available_s:.0f} s of {duration_s:.0f} s"),
+            )
 
         # Classical session establishment (uses pass geometry midpoint)
         mid = pass_start + timedelta(seconds=duration_s / 2)
         mid_geom = self._prop.station_geometry(mid, self._station)
-        mid_rf = rf_link_budget(mid_geom['range_m'],
-                                rf_config_with_jamming(self._cfg.rf, self._scenario.rf_signal_loss_db))
-        classical_summary = classical_key_establishment(
-            link_available=mid_rf['available'],
-            snr_db=mid_rf['snr_db'],
-            range_m=mid_geom['range_m'],
-            contact_duration_s=duration_s,
-            cfg=self._cfg.classical_session,
-        )
+        mid_rf = rf_link_budget(mid_geom['range_m'], rf_cfg)
+        summaries = [
+            classical_key_establishment(
+                link_available=mid_rf['available'],
+                snr_db=mid_rf['snr_db'],
+                range_m=mid_geom['range_m'],
+                contact_duration_s=duration_s,
+                cfg=session_cfg,
+                capacity_bps=mid_rf['shannon_capacity_bps'],
+            )
+            for session_cfg in (self._cfg.classical_session, self._cfg.pqc_session)
+        ]
 
-        return samples, finite_pass, classical_summary
+        return samples, finite_pass, summaries[0], summaries[1]
 
     def _config_summary(self) -> dict:
         return {
             "rf": {
                 "tx_power_dbm": self._cfg.rf.tx_power_dbm,
+                "rx_antenna_gain_dbi": self._cfg.rf.rx_antenna_gain_dbi,
                 "frequency_hz": self._cfg.rf.frequency_hz,
                 "bandwidth_hz": self._cfg.rf.bandwidth_hz,
             },
@@ -374,6 +445,12 @@ class ExperimentRunner:
                 "source_rate_hz": self._cfg.optical.source_rate_hz,
                 "rx_aperture_m": self._cfg.optical.rx_aperture_m,
                 "beam_divergence_half_angle_rad": self._cfg.optical.beam_divergence_half_angle_rad,
+                "mean_photon_number": self._cfg.optical.mean_photon_number,
+                "timing_resolution_s": self._cfg.optical.timing_resolution_s,
+            },
+            "classical": {
+                "pre_quantum": self._cfg.classical_session.key_exchange,
+                "post_quantum": self._cfg.pqc_session.key_exchange,
             },
             "qkd_finite": {
                 "eps_sec": self._cfg.qkd_finite.eps_sec,
@@ -384,8 +461,15 @@ class ExperimentRunner:
                 "rf_signal_loss_db": self._scenario.rf_signal_loss_db,
                 "optical_background_scale": self._scenario.optical_background_scale,
                 "optical_cloud_blocked": self._scenario.optical_cloud_blocked,
+                "qkd_intercept_resend_fraction": self._scenario.qkd_intercept_resend_fraction,
             },
         }
+
+
+def _h2(p: float) -> float:
+    if p <= 0.0 or p >= 1.0:
+        return 0.0
+    return -(p * math.log2(p) + (1.0 - p) * math.log2(1.0 - p))
 
 
 def _iso(dt: datetime) -> str:

@@ -1,42 +1,45 @@
 """Asymptotic BB84 secret-key rate model.
 
 This is the qkd_classical_protocol channel's key-establishment calculation.
-It consumes the optical link metrics (sifted count, QBER) and returns an
-asymptotic key rate estimate with explicit limitations.
+It consumes the optical link metrics (sifted count, QBER, and the decoy-state
+single-photon quantities) and returns an asymptotic key rate estimate with
+explicit limitations.
 
 Channel ID: qkd_classical_protocol (key establishment result)
 
-Protocol: Decoy-state BB84 (asymptotic limit, infinite key length assumed).
-
-Secret-key rate formula (asymptotic, one-way error correction):
-    R_key = R_sifted * max(0, 1 - f_ec * H2(QBER) - H2(QBER))
+Secret-key rate (GLLP form, one-way error correction, infinite key length):
+    R_key = R_sifted * max(0, Δ1 (1 − H2(e1)) − f_ec H2(E))
 where:
     R_sifted  = sifted detection rate (Hz)
-    f_ec      = error correction efficiency (1.0 = perfect; ~1.15–1.22 in practice)
-    H2(p)     = binary entropy = -p log2(p) - (1-p) log2(1-p)
+    E         = observed QBER of all sifted detections
+    Δ1        = fraction of detections that come from single-photon pulses
+    e1        = error rate of those single-photon detections
+    f_ec      = error correction inefficiency (1.0 = Shannon limit; ~1.1–1.2 in practice)
+    H2(p)     = binary entropy = −p log2(p) − (1−p) log2(1−p)
 
-Security threshold: QBER must be below 11% for BB84 to produce positive key
-rate in the asymptotic limit.  QBER above 25% implies eavesdropping or a
-broken link by definition.
+For an ideal single-photon source Δ1 = 1 and e1 = E, which reduces to the
+Shor–Preskill rate 1 − H2(E) − f_ec H2(E).  For weak coherent pulses the optical
+model supplies Δ1 and e1 in the infinite-decoy-state limit (Lo, Ma & Chen 2005).
+
+Security threshold: with f_ec = 1 the Shor–Preskill rate is positive only for
+QBER below ≈ 11 %.
 
 Limitations
 -----------
-- Finite-key effects are NOT included.  Asymptotic rates overestimate the key
-  rate for short passes (< ~10^6 sifted bits).  Do not claim security from
-  these numbers without finite-key analysis.
-- Decoy-state tagging and multi-photon fraction are not modeled here; a weak
-  coherent pulse source needs separate decoy-state counting.
-- Privacy amplification overhead is accounted for in the formula above but
-  authentication overhead (for the classical protocol channel) is not subtracted.
+- Finite-key effects are NOT included.  Use security/qkd_finite_key.py for
+  per-pass key lengths.  Do not claim security from these numbers.
+- Decoy-state bounds are the infinite-decoy limit, not a finite decoy analysis.
+- Authentication overhead for the classical protocol channel is not subtracted.
 - One-way error correction is assumed; two-way protocols can do better.
-- Key storage, buffer accounting, and consumption rates are not tracked here.
 
 References
 ----------
 Shor, P. W. & Preskill, J. (2000) "Simple proof of security of the BB84
   quantum key distribution protocol", PRL 85, 441.
-Lo, H.-K., Chau, H. F. & Ardehali, M. (2005) "Efficient quantum key distribution
-  scheme and a proof of its unconditional security", J. Cryptology 18, 133.
+Gottesman, Lo, Lütkenhaus & Preskill (2004) "Security of quantum key
+  distribution with imperfect devices", Quant. Inf. Comput. 4, 325.
+Lo, H.-K., Ma, X. & Chen, K. (2005) "Decoy state quantum key distribution",
+  PRL 94, 230504.
 """
 from dataclasses import dataclass
 import math
@@ -63,7 +66,9 @@ def _h2(p: float) -> float:
     return -(p * math.log2(p) + (1.0 - p) * math.log2(1.0 - p))
 
 
-def qkd_key_metrics(sifted_count_hz: float, qber: float, cfg: QKDModelConfig) -> dict:
+def qkd_key_metrics(sifted_count_hz: float, qber: float, cfg: QKDModelConfig,
+                    single_photon_fraction: float = 1.0,
+                    single_photon_qber: float = None) -> dict:
     """Compute asymptotic BB84 secret-key metrics.
 
     Parameters
@@ -74,6 +79,10 @@ def qkd_key_metrics(sifted_count_hz: float, qber: float, cfg: QKDModelConfig) ->
         Quantum bit error rate from the optical link model, [0, 0.5].
     cfg : QKDModelConfig
         Protocol parameters.
+    single_photon_fraction : float
+        Δ1, fraction of detections from single-photon pulses (1 = ideal source).
+    single_photon_qber : float or None
+        e1, single-photon error rate; defaults to ``qber``.
 
     Returns
     -------
@@ -86,7 +95,9 @@ def qkd_key_metrics(sifted_count_hz: float, qber: float, cfg: QKDModelConfig) ->
         ec_leak_fraction      : error-correction information leakage fraction
         secure_fraction       : fraction of sifted bits that become secret key
         secret_key_rate_bit_s : secret key generation rate, bit/s (asymptotic)
-        model_id              : 'bb84_asymptotic'
+        single_photon_fraction: Δ1 used
+        single_photon_qber    : e1 used
+        model_id              : 'bb84_asymptotic' (ideal source) or 'bb84_asymptotic_gllp_decoy'
         finite_key_valid      : always False — finite-key effects not included
     """
     cfg.validate()
@@ -95,9 +106,13 @@ def qkd_key_metrics(sifted_count_hz: float, qber: float, cfg: QKDModelConfig) ->
     if not (0.0 <= qber <= 0.5):
         raise ValueError("qber must be in [0, 0.5]")
 
+    if not (0.0 <= single_photon_fraction <= 1.0):
+        raise ValueError("single_photon_fraction must be in [0, 1]")
+    e1 = qber if single_photon_qber is None else single_photon_qber
+
     h2_q = _h2(qber)
     ec_leak = cfg.ec_efficiency * h2_q
-    secure_fraction = max(0.0, 1.0 - ec_leak - h2_q)
+    secure_fraction = max(0.0, single_photon_fraction * (1.0 - _h2(e1)) - ec_leak)
     key_rate = sifted_count_hz * secure_fraction
 
     if sifted_count_hz == 0.0:
@@ -108,6 +123,9 @@ def qkd_key_metrics(sifted_count_hz: float, qber: float, cfg: QKDModelConfig) ->
         status = "aborted"
         reason = f"QBER {qber:.4f} exceeds asymptotic security threshold {cfg.qber_threshold:.2f}"
         key_rate = 0.0
+    elif secure_fraction == 0.0:
+        status = "aborted"
+        reason = "Single-photon contribution too small for positive key"
     else:
         status = "succeeded"
         reason = "Asymptotic estimate; finite-key effects not included"
@@ -125,6 +143,8 @@ def qkd_key_metrics(sifted_count_hz: float, qber: float, cfg: QKDModelConfig) ->
         "ec_leak_fraction": ec_leak,
         "secure_fraction": secure_fraction,
         "secret_key_rate_bit_s": key_rate,
-        "model_id": "bb84_asymptotic",
+        "single_photon_fraction": single_photon_fraction,
+        "single_photon_qber": e1,
+        "model_id": "bb84_asymptotic" if single_photon_fraction == 1.0 else "bb84_asymptotic_gllp_decoy",
         "finite_key_valid": False,
     }

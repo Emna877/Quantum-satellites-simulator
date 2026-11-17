@@ -1,95 +1,63 @@
-"""BB84 secret-key rate with finite-key corrections.
+"""BB84 secret-key length with finite-key corrections.
 
 The asymptotic formula in communication/qkd_model.py overestimates the key
-rate for short contact passes because it assumes an infinite number of sifted
-bits.  This module applies finite-key corrections that reduce or eliminate the
-key rate for passes with fewer sifted bits than the security parameters require.
+length for short contact passes because it assumes infinitely many sifted
+bits.  This module applies the finite-key bound of Tomamichel et al. (2012),
+combined with decoy-state single-photon bounds (GLLP form) for weak coherent
+pulse sources.
 
-Finite-key model (Tomamichel et al. 2012)
-------------------------------------------
-The secure key length (bits) for n_sifted sifted bits is:
+Finite-key bound (Tomamichel, Lim, Gisin & Renner 2012, Nat. Commun. 3, 634)
+-----------------------------------------------------------------------------
+Of the N sifted bits, k = pe_fraction · N are disclosed to estimate the error
+rate and n = N − k form the raw key.  The protocol is ε_cor-correct and
+ε_sec-secret if the extracted key length satisfies
 
-    l = n_sifted * r_asym - xi * sqrt(n_sifted) - log2(2 / eps_PA)
+    ℓ ≤ n (1 − H2(Q + μ)) − leak_EC − log2(2 / (ε_sec² ε_cor))
 
-where:
-    r_asym  = max(0, 1 - f_ec * H2(q) - H2(q))   [asymptotic rate per sifted bit]
-    xi      = sqrt(2) * k_sigma * sqrt(log2(8 / eps_sec))
-    k_sigma = constant accounting for statistical estimation uncertainty (~7 for
-              standard parameters; derived from Chernoff / Azuma bounds)
-    eps_sec = desired security parameter (total failure probability)
-    eps_PA  = privacy amplification failure probability (≤ eps_sec / 2)
+    μ = sqrt( (n + k)/(n k) · (k + 1)/k · ln(2 / ε_sec) )
+    leak_EC = f_ec · n · H2(Q)
 
-The correction term ``xi * sqrt(n_sifted)`` captures statistical fluctuations
-in the error rate estimate and the privacy amplification hash length.
+where Q is the observed error rate and μ the statistical deviation allowed
+between the error rate of the test bits and that of the key bits.
 
-Key behaviour
--------------
-- For very short passes (n_sifted < ~10^4), l ≤ 0 and no key is produced.
-- The crossover n_min (where l first becomes positive) depends on eps_sec:
-    eps_sec = 1e-9 (research): n_min ≈ 10^5 sifted bits
-    eps_sec = 1e-6 (demo):     n_min ≈ 10^4 sifted bits
-- Well above n_min the finite-key rate approaches the asymptotic rate.
+Decoy-state extension (heuristic combination)
+---------------------------------------------
+For weak coherent pulses only single-photon detections contribute to the
+secret key (GLLP).  With Δ1 the single-photon fraction of detections and e1
+their error rate, this module uses
+
+    ℓ = n1 (1 − H2(e1 + μ1)) − f_ec · n · H2(Q) − log2(2 / (ε_sec² ε_cor))
+
+with n1 = Δ1 n, k1 = Δ1 k and μ1 evaluated on (n1, k1).  Δ1 and e1 come from
+the optical model (infinite-decoy limit) when supplied; otherwise, for a WCP
+source with decoy states, Δ1 = e^−μ (low-loss limit of Q1/Qμ) and the
+worst-case bound e1 ≤ Q / Δ1 is used.  Without decoy states, multi-photon
+pulses cannot be bounded at satellite losses (photon-number splitting), so
+Δ1 = 0 and no key is produced.
+
+This combination is NOT a composable finite-size decoy-state proof.  A rigorous
+treatment (e.g. Lim, Curty, Walenta, Xu & Zbinden 2014) also bounds the decoy
+yields with finite statistics, which lowers the key further.
 
 Limitations
 -----------
-- Simplified Chernoff-bound treatment; a rigorous composable security proof
-  (e.g. Pirandola et al. 2020 review) requires more involved calculations.
-- Decoy-state phase-error estimation is not included.  With a WCP source, the
-  single-photon yield must be bounded separately (see decoy-state literature).
+- Decoy-state yields use infinite statistics; only the error-rate estimate is finite.
 - Authentication cost for the classical protocol channel is not subtracted.
 - Two-way error correction and advantage distillation are not modelled.
-- ``finite_key_valid`` is True only when n_sifted ≥ n_min; below that threshold
-  this formula returns l = 0 (abort), which is conservative but correct.
-
-Decoy-state WCP extension
---------------------------
-Real QKD transmitters use weak coherent pulse (WCP) sources, not ideal single-
-photon emitters.  A Poisson-distributed photon number with mean μ means a
-fraction of pulses carry two or more photons, which are vulnerable to photon-
-number-splitting (PNS) attacks in the absence of decoy states.
-
-The decoy-state method (Hwang 2003; Lo, Ma & Chen 2005) uses additional signal
-intensities (decoys) to tightly bound the single-photon yield and phase-error
-rate from which the secret key is derived.
-
-This module implements a conservative single-photon lower bound appropriate for
-the infinite-decoy-state limit:
-
-    P1    = μ * exp(-μ)              [fraction of single-photon pulses, Poisson]
-    Q1_lb ≥ P1 * Q_total            [single-photon detection yield lower bound]
-    e1_ub ≤ Q_total * QBER / Q1_lb  [phase-error upper bound]
-
-The secure key rate with decoy-state correction is then:
-
-    R_wcp = R_sifted * P1 * max(0, 1 - f_ec * H2(e1_ub) - H2(e1_ub))
-
-For μ → 0 the WCP rate approaches the ideal single-photon rate.  For μ = 0.1
-(typical satellite QKD), P1 ≈ 0.090 and the WCP rate is ~9 × lower than the
-ideal single-photon asymptotic rate.
-
-Without decoy states, the secure fraction of multi-photon pulses (P_multi) must
-be treated as zero (PNS attack can compromise them all).
-
-Limitations added by the WCP extension
----------------------------------------
-- Infinite-decoy-state limit assumed; finite decoy intensity correction is not
-  included.
-- Detector efficiency and dead-time effects on multi-photon detection not
-  modelled.
-- The phase-error bound uses QBER as a proxy; a full decoy analysis uses
-  separate basis statistics.
+- ``finite_key_valid`` is True only when a positive key is produced and
+  N ≥ n_min_sifted.  n_min_sifted is a hard floor, not the crossover length.
 
 References
 ----------
 Tomamichel, M., Lim, C. C. W., Gisin, N. & Renner, R. (2012) "Tight finite-key
   analysis for quantum cryptography", Nature Communications 3, 634.
-Ma, X., Fung, C.-H. F. & Razavi, M. (2012) "Statistical fluctuation analysis
-  for measurement-device-independent quantum key distribution",
-  Physical Review A 86, 052305.
-Hwang, W.-Y. (2003) "Quantum key distribution with high loss: toward global
-  secure communication", Physical Review Letters 91, 057901.
+Gottesman, Lo, Lütkenhaus & Preskill (2004) "Security of quantum key
+  distribution with imperfect devices", Quant. Inf. Comput. 4, 325.
 Lo, H.-K., Ma, X. & Chen, K. (2005) "Decoy state quantum key distribution",
   Physical Review Letters 94, 230504.
+Lim, C. C. W., Curty, M., Walenta, N., Xu, F. & Zbinden, H. (2014) "Concise
+  security bounds for practical decoy-state quantum key distribution",
+  Physical Review A 89, 022307.
 """
 from dataclasses import dataclass
 import math
@@ -100,23 +68,21 @@ class BB84FiniteKeyConfig:
     """Finite-key BB84 parameters, with optional WCP / decoy-state correction."""
 
     # Error correction
-    ec_efficiency: float = 1.16           # f_ec ≥ 1.0 (1.0 = perfect)
-    qber_threshold: float = 0.11          # abort if QBER ≥ this value
+    ec_efficiency: float = 1.16           # f_ec ≥ 1.0 (1.0 = Shannon limit)
+    qber_threshold: float = 0.11          # abort if observed QBER ≥ this value
 
-    # Security parameters
-    eps_sec: float = 1e-9                 # desired security parameter (failure prob)
-    k_sigma: float = 7.0                  # statistical estimation constant (Chernoff)
+    # Security parameters (Tomamichel et al. 2012)
+    eps_sec: float = 1e-9                 # secrecy parameter
+    eps_cor: float = 1e-12                # correctness parameter
+    pe_fraction: float = 0.1              # fraction of sifted bits disclosed for error estimation
 
-    # Minimum sifted-bit count to attempt finite-key analysis
-    # (Below this the correction term always dominates → l ≤ 0.)
-    n_min_sifted: int = 1000              # hard floor; 0 below this
+    # Hard floor on sifted bits before any key is attempted
+    n_min_sifted: int = 1000
 
-    # Weak coherent pulse / decoy-state parameters
-    # Set wcp_mean_photon_number > 0 to enable the WCP correction.
-    # Use 0.0 to model an ideal single-photon source (no WCP correction).
+    # Weak coherent pulse / decoy-state parameters, used only when the optical
+    # model does not supply single-photon quantities.
     wcp_mean_photon_number: float = 0.0   # μ; 0 = ideal single-photon source
-    use_decoy_state: bool = True          # True = apply decoy-state lower bound
-                                          # False = no multi-photon security (pessimistic)
+    use_decoy_state: bool = True          # False = multi-photon pulses unbounded (PNS)
 
     def validate(self):
         if self.ec_efficiency < 1.0:
@@ -125,8 +91,10 @@ class BB84FiniteKeyConfig:
             raise ValueError("qber_threshold must be in (0, 0.5)")
         if not (0.0 < self.eps_sec < 1.0):
             raise ValueError("eps_sec must be in (0, 1)")
-        if self.k_sigma <= 0:
-            raise ValueError("k_sigma must be positive")
+        if not (0.0 < self.eps_cor < 1.0):
+            raise ValueError("eps_cor must be in (0, 1)")
+        if not (0.0 < self.pe_fraction < 1.0):
+            raise ValueError("pe_fraction must be in (0, 1)")
         if self.n_min_sifted < 0:
             raise ValueError("n_min_sifted must be nonnegative")
         if self.wcp_mean_photon_number < 0:
@@ -141,87 +109,53 @@ def _h2(p: float) -> float:
     return -(p * math.log2(p) + (1.0 - p) * math.log2(1.0 - p))
 
 
-def _wcp_single_photon_fraction(mu: float) -> float:
-    """P1 = μ exp(−μ): fraction of WCP pulses that are single-photon (Poisson)."""
+def _single_photon_bounds(qber, cfg, single_photon_fraction, single_photon_qber):
+    """Return (Δ1, e1, info) for the key-rate formula."""
+    if single_photon_fraction is not None:
+        e1 = qber if single_photon_qber is None else single_photon_qber
+        return single_photon_fraction, e1, {
+            "wcp_applied": single_photon_fraction < 1.0,
+            "mu": cfg.wcp_mean_photon_number,
+            "single_photon_fraction": single_photon_fraction,
+            "e1_upper_bound": e1,
+            "model": "decoy_state_infinite_limit_from_link",
+        }
+
+    mu = cfg.wcp_mean_photon_number
     if mu <= 0.0:
-        return 1.0  # ideal single-photon source
-    return mu * math.exp(-mu)
-
-
-def _wcp_decoy_state_rate(
-    sifted_count_hz: float,
-    qber: float,
-    mu: float,
-    ec_efficiency: float,
-    use_decoy: bool,
-) -> tuple:
-    """Apply decoy-state / WCP correction and return (effective_sifted_hz, effective_qber, info).
-
-    Returns
-    -------
-    (eff_sifted_hz, eff_qber, wcp_info_dict)
-
-    With decoy states (infinite-decoy limit, Lo et al. 2005):
-      - Single-photon yield lower bound: Q1_lb = P1 * Q_total
-      - Phase-error upper bound: e1_ub = QBER / P1 (conservative; exact with
-        decoy uses separate Z-basis statistics)
-      - Effective sifted rate for key generation: Q1_lb (single-photon events)
-      - Multi-photon pulses do not contribute to the secure key
-
-    Without decoy states:
-      - All multi-photon pulses are treated as insecure (PNS attack)
-      - Only single-photon events (P1 fraction) can produce a secure key
-      - Phase error is unbound: use raw QBER as a conservative upper bound
-    """
-    P1 = _wcp_single_photon_fraction(mu)
-    P0 = math.exp(-mu) if mu > 0 else 0.0
-    P_multi = max(0.0, 1.0 - P0 - P1) if mu > 0 else 0.0
-
-    if mu <= 0.0:
-        # Ideal single-photon source — no WCP correction needed
-        return sifted_count_hz, qber, {
+        return 1.0, qber, {
             "wcp_applied": False,
             "mu": 0.0,
-            "P1": 1.0,
-            "P_multi": 0.0,
+            "single_photon_fraction": 1.0,
             "model": "ideal_single_photon",
         }
 
-    # Single-photon contribution to detected rate
-    Q1_lb = P1 * sifted_count_hz  # conservative lower bound on single-photon yield
-
-    if use_decoy:
-        # Decoy-state phase-error upper bound: e1_ub = QBER * Q_total / Q1_lb
-        # (simplified; tight when decoy intensity ν → 0)
-        e1_ub = qber / P1 if P1 > 0 else 0.5
-        e1_ub = min(e1_ub, 0.5)
+    p1 = mu * math.exp(-mu)
+    p_multi = max(0.0, 1.0 - math.exp(-mu) - p1)
+    if cfg.use_decoy_state:
+        delta1 = math.exp(-mu)            # Q1/Qμ when μη ≪ 1 and background is negligible
+        e1 = min(0.5, qber / delta1)      # all errors attributed to single photons
         model = "decoy_state_infinite_limit"
     else:
-        # No decoy: use raw QBER as phase-error bound (loose, pessimistic)
-        e1_ub = qber
+        delta1 = 0.0                      # P_multi ≫ Qμ at satellite losses: PNS breaks all
+        e1 = 0.5
         model = "no_decoy_single_photon_only"
-
-    return Q1_lb, e1_ub, {
+    return delta1, e1, {
         "wcp_applied": True,
         "mu": mu,
-        "P1": P1,
-        "P_multi": P_multi,
-        "Q1_lower_bound_hz": Q1_lb,
-        "e1_upper_bound": e1_ub,
+        "P1": p1,
+        "P_multi": p_multi,
+        "single_photon_fraction": delta1,
+        "e1_upper_bound": e1,
         "model": model,
     }
 
 
-def _finite_key_correction(n_sifted: float, cfg: BB84FiniteKeyConfig) -> float:
-    """Compute the finite-key correction term in bits.
-
-    correction = xi * sqrt(n_sifted) + log2(2 / eps_PA)
-    where eps_PA = eps_sec / 2, xi = sqrt(2) * k_sigma * sqrt(log2(8 / eps_sec))
-    """
-    eps_PA = cfg.eps_sec / 2.0
-    xi = math.sqrt(2.0) * cfg.k_sigma * math.sqrt(math.log2(8.0 / cfg.eps_sec))
-    correction = xi * math.sqrt(n_sifted) + math.log2(2.0 / eps_PA)
-    return correction
+def _statistical_deviation(n: float, k: float, eps_sec: float) -> float:
+    """Tomamichel et al. (2012) deviation μ between test and key error rates."""
+    if n <= 0 or k <= 0:
+        return 0.5
+    return math.sqrt((n + k) / (n * k) * (k + 1) / k * math.log(2.0 / eps_sec))
 
 
 def bb84_finite_key_metrics(
@@ -229,20 +163,25 @@ def bb84_finite_key_metrics(
     qber: float,
     pass_duration_s: float,
     cfg: BB84FiniteKeyConfig,
+    single_photon_fraction: float = None,
+    single_photon_qber: float = None,
 ) -> dict:
     """Compute finite-key BB84 secret-key metrics for a single contact pass.
 
     Parameters
     ----------
     sifted_count_hz : float
-        Sifted detection rate from the optical link model, photons/s.
+        Sifted detection rate from the optical link model, clicks/s.
     qber : float
-        Quantum bit error rate, [0, 0.5].
+        Observed quantum bit error rate, [0, 0.5].
     pass_duration_s : float
-        Duration of the contact window used for key accumulation, seconds.
+        Duration used for key accumulation, seconds.
         The total sifted bits are ``sifted_count_hz * pass_duration_s``.
     cfg : BB84FiniteKeyConfig
         Protocol and security parameters.
+    single_photon_fraction, single_photon_qber : float or None
+        Decoy-state Δ1 and e1 from the optical model.  When omitted, they are
+        derived from ``cfg.wcp_mean_photon_number``.
 
     Returns
     -------
@@ -250,14 +189,19 @@ def bb84_finite_key_metrics(
         channel_id              : 'qkd_finite_key'
         key_status              : 'succeeded' | 'aborted'
         abort_reason            : str or None
-        n_sifted_bits           : total sifted bits in the pass
-        r_asymptotic            : asymptotic rate per sifted bit (no finite-key correction)
-        correction_bits         : finite-key correction term, bits
+        n_sifted_bits           : total sifted bits in the pass (N)
+        n_key_bits              : raw key bits after parameter estimation (n)
+        n_pe_bits               : bits disclosed for parameter estimation (k)
+        qber                    : observed QBER used
+        statistical_deviation   : μ, finite-size deviation added to e1
+        r_asymptotic            : asymptotic secret fraction per raw key bit
+        correction_bits         : finite-size penalty relative to the asymptotic length, bits
         secure_key_bits         : bits of secure key from this pass (≥ 0)
         secure_key_rate_bit_s   : average rate over the pass, bit/s
-        finite_key_valid        : True when n_sifted ≥ n_min_sifted
-        model_id                : 'bb84_finite_tomamichel2012'
-        eps_sec                 : security parameter used
+        finite_key_valid        : True when a positive key is produced and N ≥ n_min_sifted
+        model_id                : 'bb84_finite_tomamichel2012' or '..._gllp_decoy'
+        eps_sec, eps_cor        : security parameters used
+        wcp                     : single-photon bound details
     """
     cfg.validate()
     if sifted_count_hz < 0:
@@ -267,77 +211,79 @@ def bb84_finite_key_metrics(
     if pass_duration_s < 0:
         raise ValueError("pass_duration_s must be nonneg")
 
-    # Apply WCP / decoy-state correction before computing key rate.
-    # eff_sifted_hz is the single-photon-only detection rate; eff_qber is the
-    # phase-error upper bound for single-photon pulses.
-    eff_sifted_hz, eff_qber, wcp_info = _wcp_decoy_state_rate(
-        sifted_count_hz, qber,
-        cfg.wcp_mean_photon_number, cfg.ec_efficiency, cfg.use_decoy_state,
-    )
+    delta1, e1, wcp_info = _single_photon_bounds(qber, cfg, single_photon_fraction, single_photon_qber)
+    model_id = "bb84_finite_tomamichel2012" if delta1 == 1.0 else "bb84_finite_tomamichel2012_gllp_decoy"
 
-    n_sifted = eff_sifted_hz * pass_duration_s
-    h2_q = _h2(eff_qber)
-    ec_leak = cfg.ec_efficiency * h2_q
-    r_asym = max(0.0, 1.0 - ec_leak - h2_q)
+    n_total = sifted_count_hz * pass_duration_s
+    k = cfg.pe_fraction * n_total
+    n = n_total - k
+    n1, k1 = delta1 * n, delta1 * k
 
-    # Abort conditions
-    if sifted_count_hz == 0.0 or n_sifted == 0.0:
-        return _abort(cfg, n_sifted, r_asym, 0.0, "No sifted photons (link unavailable)",
-                      pass_duration_s, wcp_info)
+    leak_ec = cfg.ec_efficiency * n * _h2(qber)
+    r_asym = max(0.0, delta1 * (1.0 - _h2(e1)) - cfg.ec_efficiency * _h2(qber))
+    mu = _statistical_deviation(n1, k1, cfg.eps_sec)
+    hash_cost = math.log2(2.0 / (cfg.eps_sec ** 2 * cfg.eps_cor))
 
+    base = dict(cfg=cfg, n_total=n_total, n=n, k=k, qber=qber, mu=mu, r_asym=r_asym,
+                pass_duration_s=pass_duration_s, wcp_info=wcp_info, model_id=model_id)
+
+    if sifted_count_hz == 0.0 or n_total == 0.0:
+        return _abort(reason="No sifted photons (link unavailable)", correction=0.0, **base)
     if qber >= cfg.qber_threshold:
-        return _abort(cfg, n_sifted, r_asym, 0.0,
-                      f"QBER {qber:.4f} ≥ threshold {cfg.qber_threshold:.2f}",
-                      pass_duration_s, wcp_info)
-
+        return _abort(reason=f"QBER {qber:.4f} ≥ threshold {cfg.qber_threshold:.2f}", correction=0.0, **base)
     if r_asym == 0.0:
-        return _abort(cfg, n_sifted, r_asym, 0.0,
-                      "Asymptotic rate is zero (phase error too high for positive key)",
-                      pass_duration_s, wcp_info)
+        return _abort(reason="Asymptotic rate is zero (single-photon phase error too high for positive key)",
+                      correction=0.0, **base)
+    if n_total < cfg.n_min_sifted:
+        return _abort(reason=f"Insufficient sifted bits: {n_total:.0f} < n_min {cfg.n_min_sifted}",
+                      correction=0.0, **base)
 
-    if n_sifted < cfg.n_min_sifted:
-        return _abort(cfg, n_sifted, r_asym, 0.0,
-                      f"Insufficient single-photon sifted bits: {n_sifted:.0f} < n_min {cfg.n_min_sifted}",
-                      pass_duration_s, wcp_info)
-
-    correction = _finite_key_correction(n_sifted, cfg)
-    secure_bits = max(0.0, n_sifted * r_asym - correction)
-    finite_key_valid = n_sifted >= cfg.n_min_sifted
+    e1_eff = min(0.5, e1 + mu)
+    secure_bits = max(0.0, n1 * (1.0 - _h2(e1_eff)) - leak_ec - hash_cost)
+    correction = n * r_asym - secure_bits
 
     if secure_bits == 0.0:
-        return _abort(cfg, n_sifted, r_asym, correction,
-                      "Finite-key correction exceeds asymptotic key length",
-                      pass_duration_s, wcp_info)
+        return _abort(reason="Finite-key correction exceeds asymptotic key length", correction=correction, **base)
 
     rate = secure_bits / pass_duration_s if pass_duration_s > 0 else 0.0
     return {
         "channel_id": "qkd_finite_key",
         "key_status": "succeeded",
         "abort_reason": None,
-        "n_sifted_bits": n_sifted,
+        "n_sifted_bits": n_total,
+        "n_key_bits": n,
+        "n_pe_bits": k,
+        "qber": qber,
+        "statistical_deviation": mu,
         "r_asymptotic": r_asym,
         "correction_bits": correction,
         "secure_key_bits": secure_bits,
         "secure_key_rate_bit_s": rate,
-        "finite_key_valid": finite_key_valid,
-        "model_id": "bb84_finite_tomamichel2012",
+        "finite_key_valid": True,
+        "model_id": model_id,
         "eps_sec": cfg.eps_sec,
+        "eps_cor": cfg.eps_cor,
         "wcp": wcp_info,
     }
 
 
-def _abort(cfg, n_sifted, r_asym, correction, reason, pass_duration_s, wcp_info=None):
+def _abort(cfg, n_total, n, k, qber, mu, r_asym, correction, reason, pass_duration_s, wcp_info, model_id):
     return {
         "channel_id": "qkd_finite_key",
         "key_status": "aborted",
         "abort_reason": reason,
-        "n_sifted_bits": n_sifted,
+        "n_sifted_bits": n_total,
+        "n_key_bits": n,
+        "n_pe_bits": k,
+        "qber": qber,
+        "statistical_deviation": mu,
         "r_asymptotic": r_asym,
         "correction_bits": correction,
         "secure_key_bits": 0.0,
         "secure_key_rate_bit_s": 0.0,
         "finite_key_valid": False,
-        "model_id": "bb84_finite_tomamichel2012",
+        "model_id": model_id,
         "eps_sec": cfg.eps_sec,
-        "wcp": wcp_info or {"wcp_applied": False, "mu": cfg.wcp_mean_photon_number},
+        "eps_cor": cfg.eps_cor,
+        "wcp": wcp_info,
     }

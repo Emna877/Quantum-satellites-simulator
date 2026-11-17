@@ -8,6 +8,7 @@ mutated.
 Design rule: only the channel explicitly targeted by an event is modified.
   - JammingAttack  → rf_data    (signal_loss_db applied as interference)
   - LaserDazzle    → quantum_optical (increased background counts)
+  - Intercept-resend eavesdropping → quantum_optical (errors on signal photons)
   - GPSSpoofing    → navigation_position_estimate (not a channel config; handled separately)
 
 Channel-to-channel coupling is NOT modelled automatically.  A jamming attack
@@ -18,6 +19,7 @@ Units
 -----
   signal_loss_db      : dB   (positive = more loss, i.e. worse link)
   background_scale    : linear multiplier on sky_background_hz
+  intercept_fraction  : fraction of signal photons intercepted and resent (0–1)
 """
 from dataclasses import replace
 from communication.rf_link import RFLinkConfig
@@ -72,6 +74,19 @@ def optical_config_with_extra_loss(
     """
     loss = max(0.0, extra_loss_db)
     return replace(base, pointing_loss_db=base.pointing_loss_db + loss)
+
+
+def optical_config_with_intercept_resend(
+    base: OpticalLinkConfig, intercept_fraction: float
+) -> OpticalLinkConfig:
+    """Return a copy of *base* with an intercept-resend eavesdropper on the quantum channel.
+
+    Eve measures a fraction of the signal photons in a random basis and resends
+    her result.  The optical model turns this into a signal error rate of
+    (1 − f) e_d + f (1/4 + e_d/2); full interception gives QBER ≈ 25 %.
+    """
+    fraction = min(1.0, max(0.0, intercept_fraction))
+    return replace(base, intercept_resend_fraction=fraction)
 
 
 def rf_config_from_state(base: RFLinkConfig, state) -> RFLinkConfig:
