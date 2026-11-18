@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta, timezone
@@ -66,6 +67,8 @@ from communication.channel_effects import (
 from security.classical_session import ClassicalSessionConfig, classical_key_establishment
 from security.qkd_finite_key import BB84FiniteKeyConfig, bb84_finite_key_metrics
 from security.key_store import KeyStore, KeyStoreConfig
+from security.bb84_protocol import BB84EventConfig, QKDKeyPool, simulate_pass
+from security.crypto_exec import execute_qkd_keyed_session, execute_session, not_executed
 from experiments.scenarios import ScenarioDefinition, SCENARIOS
 
 
@@ -84,6 +87,12 @@ class RunnerConfig:
     # QKD post-processing over the authenticated RF channel
     min_post_processing_link_s: float = 10.0   # minimum RF-available time in the pass
     post_processing_bits_per_detection: float = 2.0  # detection index + basis announcement
+    # Event mode: play out BB84 detection by detection (security/bb84_protocol.py).
+    event_mode: bool = False
+    event_seed: int = 2026                     # same seed per pass index in every scenario
+    bb84_event: BB84EventConfig = field(default_factory=BB84EventConfig)
+    # Execute real ECDH / ML-KEM / AES-256-GCM sessions and attack them (security/crypto_exec.py).
+    execute_crypto: bool = False
 
 
 @dataclass
@@ -177,6 +186,10 @@ _LIMITATIONS = [
     "key consumption is not subtracted from the key budget.",
     "Intercept-resend is the only eavesdropping attack modelled; PNS, detector blinding and "
     "Trojan-horse attacks are not.",
+    "Event mode simulates detected events only; multi-photon pulses use infinite-decoy bounds and "
+    "error correction is Cascade-style without back-tracking.",
+    "Executed cryptography covers one handshake and one 1 KiB message per pass; CPU timings are "
+    "from this computer and exclude radio transmission time.",
     "Navigation spoofing affects reported position estimate; true Orekit orbit is unmodified.",
 ]
 
@@ -236,19 +249,24 @@ class ExperimentRunner:
 
         # Key store starts empty
         key_store = KeyStore(config=self._cfg.key_store)
+        # Real QKD key bits (event mode) and the pre-shared key installed before launch
+        key_pool = QKDKeyPool()
+        psk = os.urandom(32) if self._cfg.execute_crypto else None
 
         passes = []
         total_contact_s = 0.0
 
-        for w in windows:
+        for index, w in enumerate(windows):
             pass_start = w['start']
             pass_end = w['end']
             duration_s = (pass_end - pass_start).total_seconds()
             total_contact_s += duration_s
 
-            samples, finite_pass, classical_summary, pqc_summary = self._run_pass(
+            samples, finite_pass, classical_summary, pqc_summary, totals = self._run_pass(
                 pass_start, pass_end, dt_s, all_events, key_store
             )
+            extras = self._execute_pass(index, finite_pass, classical_summary, pqc_summary,
+                                        totals, key_pool, psk)
 
             passes.append({
                 "pass_id": str(uuid.uuid4()),
@@ -260,6 +278,7 @@ class ExperimentRunner:
                 "classical_session_summary": classical_summary,
                 "pqc_session_summary": pqc_summary,
                 "key_store_snapshot": key_store.snapshot(),
+                **extras,
             })
 
         contact_fraction = total_contact_s / total_s if total_s > 0 else 0.0
@@ -298,7 +317,8 @@ class ExperimentRunner:
     def _run_pass(self, pass_start, pass_end, dt_s, events, key_store):
         """Sample one contact window.
 
-        Returns (samples, finite_key_pass_result, ecdh_summary, pqc_summary).
+        Returns (samples, finite_key_pass_result, ecdh_summary, pqc_summary, totals),
+        where ``totals`` holds the expected pass detections for event mode.
         """
         duration_s = (pass_end - pass_start).total_seconds()
         rf_cfg, opt_cfg = self._channel_configs()
@@ -310,6 +330,8 @@ class ExperimentRunner:
         single_sum = 0.0          # Σ sifted rate × Δ1
         single_err_sum = 0.0      # Σ sifted rate × Δ1 × e1
         detections_sum = 0.0      # Σ total click rate
+        signal_sum = 0.0          # Σ signal click rate
+        background_sum = 0.0      # Σ accepted background click rate
         rf_available_s = 0.0
         rf_capacity_bits = 0.0
         n_samples = 0
@@ -333,6 +355,8 @@ class ExperimentRunner:
             single_sum += sifted * opt['single_photon_fraction']
             single_err_sum += sifted * opt['single_photon_fraction'] * opt['single_photon_qber']
             detections_sum += opt['total_count_hz']
+            signal_sum += opt['signal_count_hz']
+            background_sum += opt['background_count_hz']
             if rf['available']:
                 rf_available_s += dt_s
                 rf_capacity_bits += (rf['shannon_capacity_bps']
@@ -403,6 +427,17 @@ class ExperimentRunner:
         dependency["satisfied"] = (rf_available_s >= self._cfg.min_post_processing_link_s
                                    and rf_capacity_bits >= pp_bits)
         finite_pass["classical_dependency"] = dependency
+        totals = {
+            "signal_counts": signal_sum / n_samples * duration_s if n_samples else 0.0,
+            "background_counts": background_sum / n_samples * duration_s if n_samples else 0.0,
+            "single_photon_fraction": pass_delta1,
+            "single_photon_qber": pass_e1,
+            "misalignment_error": opt_cfg.misalignment_error,
+            "intercept_resend_fraction": opt_cfg.intercept_resend_fraction,
+            "cloud_blocked": opt_cfg.cloud_blocked,
+            "predicted": {"sifted_bits": finite_pass["n_sifted_bits"], "qber": pass_qber,
+                          "secure_key_bits": finite_pass["secure_key_bits"]},
+        }
         if not dependency["satisfied"] and finite_pass["key_status"] == "succeeded":
             finite_pass.update(
                 key_status="aborted",
@@ -431,7 +466,49 @@ class ExperimentRunner:
             for session_cfg in (self._cfg.classical_session, self._cfg.pqc_session)
         ]
 
-        return samples, finite_pass, summaries[0], summaries[1]
+        return samples, finite_pass, summaries[0], summaries[1], totals
+
+    def _execute_pass(self, index, finite_pass, ecdh_summary, pqc_summary, totals, key_pool, psk):
+        """Event-level BB84 and executed cryptography for one pass (only when enabled)."""
+        extras = {}
+        event = None
+        if self._cfg.event_mode:
+            key_bits = None
+            if totals["cloud_blocked"]:
+                event = {"model_id": "bb84_event_level_v1", "key_status": "aborted", "secure_key_bits": 0,
+                         "abort_reason": "No photons (optical link blocked)", "sifted_bits": 0,
+                         "predicted": totals["predicted"]}
+            else:
+                event = simulate_pass(
+                    totals["signal_counts"], totals["background_counts"], totals["misalignment_error"],
+                    totals["intercept_resend_fraction"], self._cfg.qkd_finite,
+                    seed=self._cfg.event_seed * 1000 + index,
+                    single_photon_fraction=totals["single_photon_fraction"],
+                    single_photon_qber=totals["single_photon_qber"],
+                    cfg=self._cfg.bb84_event, predicted=totals["predicted"])
+                key_bits = event.pop("_key_bits")
+            if not finite_pass["classical_dependency"]["satisfied"] and event["key_status"] == "succeeded":
+                event.update(key_status="aborted", secure_key_bits=0,
+                             abort_reason="Authenticated classical channel unavailable: "
+                                          "QKD post-processing needs the RF link")
+            elif event["key_status"] == "succeeded":
+                key_pool.add(key_bits)
+            extras["qkd_event"] = event
+            extras["qkd_key_pool"] = key_pool.snapshot()
+        if self._cfg.execute_crypto:
+            for name, summary, cfg in (("classical_exec", ecdh_summary, self._cfg.classical_session),
+                                       ("pqc_exec", pqc_summary, self._cfg.pqc_session)):
+                extras[name] = (execute_session(cfg.key_exchange, cfg.auth_method, psk)
+                                if summary["key_established"]
+                                else not_executed(summary["failure_reason"] or "Session not established"))
+            if not self._cfg.event_mode:
+                extras["qkd_exec"] = not_executed("Real QKD key bits exist only in event mode")
+            elif event["key_status"] == "succeeded" and key_pool.available_bits >= 256:
+                extras["qkd_exec"] = execute_qkd_keyed_session(key_pool.take_key(256))
+                extras["qkd_key_pool"] = key_pool.snapshot()
+            else:
+                extras["qkd_exec"] = not_executed(event.get("abort_reason") or "No QKD key this pass")
+        return extras
 
     def _config_summary(self) -> dict:
         return {
@@ -451,6 +528,11 @@ class ExperimentRunner:
             "classical": {
                 "pre_quantum": self._cfg.classical_session.key_exchange,
                 "post_quantum": self._cfg.pqc_session.key_exchange,
+            },
+            "execution": {
+                "event_mode": self._cfg.event_mode,
+                "event_seed": self._cfg.event_seed if self._cfg.event_mode else None,
+                "execute_crypto": self._cfg.execute_crypto,
             },
             "qkd_finite": {
                 "eps_sec": self._cfg.qkd_finite.eps_sec,

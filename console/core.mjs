@@ -81,7 +81,7 @@ export function reportText(run){return [
  'Quantum Satellites Simulator — recorded experiment summary',`Run: ${run.run_id}`,`Scenario: ${run.scenario.scenario_name||'Physical baseline'}`,`UTC: ${run.start_time} to ${run.end_time}`,
  `Contacts: ${run.scenario.passes.length}`,`Baseline sampled RF availability: ${availabilitySeconds(run.baseline)??'not recorded'} s`,
  `Selected sampled RF availability: ${availabilitySeconds(run.scenario)??'not recorded'} s`,
- 'All channel and key outputs are engineering estimates. No actual application messages were encrypted.',
+ 'Channel and key outputs are engineering estimates. In the detailed runs, one real handshake and one AES-256-GCM message per pass are executed and attacked; BB84 is simulated event by event.',
  'QKD key is credited only when the authenticated RF link can carry post-processing (time and traffic check); the messages themselves are not executed. No blanket quantum-security conclusion follows.',
  ...(run.study?['','All scenarios (nominal QKD key; range over the optical uncertainty sweep):',...run.study.rows.map(r=>`${r.name}: ECDH ${r.nominal.ecdh_passes}/${r.nominal.passes}, ML-KEM ${r.nominal.mlkem_passes}/${r.nominal.passes}, QKD ${Math.round(r.nominal.qkd_key_bits)} bits [${Math.round(r.qkd_key_bits_min)}-${Math.round(r.qkd_key_bits_max)}]; ${r.detection.text}`)]:[]),
  '', 'Pass outcomes:',...run.scenario.passes.map((p,i)=>`Pass ${i+1}: ${p.window_start} to ${p.window_end}; finite-key estimate=${p.qkd_finite_pass?.key_status??'unknown'}; bits=${p.qkd_finite_pass?.secure_key_bits??'unknown'}; reason=${p.qkd_finite_pass?.abort_reason??'none recorded'}`),

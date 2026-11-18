@@ -3,6 +3,7 @@
 The browser only renders this record; it never re-derives a formula or a value.
 """
 from experiments.validation import REFERENCE, micius_comparison
+from security.crypto_exec import BACKEND
 
 FORMULAS = [
     dict(group='RF link', quantity='Free-space path loss',
@@ -45,6 +46,21 @@ FORMULAS = [
     dict(group='Classical sessions', quantity='Handshake time',
          formula='t = 4R / c + 8 · bytes / (η_code · C)',
          source='Message sizes: NIST SP 800-56A (ECDH), FIPS 203 (ML-KEM), FIPS 204 (ML-DSA)'),
+    dict(group='Executed cryptography', quantity='Session key and data',
+         formula='K = HKDF-SHA256(shared secret, transcript hash);  packet = header ‖ AES-256-GCM(K, nonce = header, AAD = header)',
+         source='cryptography library (OpenSSL); NIST SP 800-56A, FIPS 203/204, SP 800-38D'),
+    dict(group='Executed cryptography', quantity='Attacks per pass',
+         formula='flip 1 ciphertext bit · change header counter · forge without key · replay packet → all must be rejected',
+         source='GCM authentication tag and counter-based replay window'),
+    dict(group='Event-level BB84', quantity='Detections and measurement',
+         formula='N_sig ~ Poisson(S·T), N_bg ~ Poisson(B·T); random bits and bases; Eve resends in her basis',
+         source='security/bb84_protocol.py, seeded PCG64 generator'),
+    dict(group='Event-level BB84', quantity='Error correction',
+         formula='Interleaved block parities + binary search; leak_EC = all disclosed parities + 64-bit verification hashes',
+         source='Cascade-style (Brassard & Salvail 1993), without back-tracking'),
+    dict(group='Event-level BB84', quantity='Privacy amplification',
+         formula='Toeplitz hash to ℓ = n₁(1 − H₂(e₁ + μ)) − leak_EC(measured) − log₂(2 / (ε_sec² ε_cor))',
+         source='Universal hashing; length from Tomamichel et al. (2012)'),
 ]
 
 
@@ -82,6 +98,12 @@ def _parameter_rows(cfg):
         ('Classical sessions', 'Minimum SNR for handshake', f'{ecdh.min_snr_db_for_handshake:g}', 'dB'),
         ('Classical sessions', 'Achievable fraction of capacity', f'{ecdh.link_coding_efficiency:g}', ''),
         ('Geometry', 'Minimum elevation', f'{cfg.min_elevation_deg:g}', '°'),
+        ('Execution', 'Event-level BB84 (detailed runs)', 'on' if cfg.event_mode else 'off', 'formulas only in the results table'),
+        ('Execution', 'Event random seed', f'{cfg.event_seed}', 'pass i uses seed × 1000 + i in every scenario'),
+        ('Execution', 'Error-correction pass limit', f'{cfg.bb84_event.max_ec_passes}', ''),
+        ('Execution', 'Verification hash', f'{cfg.bb84_event.verification_hash_bits}', 'bits per check'),
+        ('Execution', 'Privacy-amplification block', f'{cfg.bb84_event.pa_block_bits}', 'bits'),
+        ('Execution', 'Executed cryptography (detailed runs)', 'on' if cfg.execute_crypto else 'off', BACKEND),
     ]
 
 

@@ -90,7 +90,7 @@ Gate: finalize the draft research questions, protocol choices, attacker capabili
 - [x] Include finite-size effects before treating short-pass results as security estimates. `security/qkd_finite_key.py` implements the Tomamichel et al. (2012) key-length bound (parameter-estimation sample, statistical deviation μ, ε_sec/ε_cor hashing cost) combined with GLLP decoy-state single-photon bounds. Decoy yields still use infinite statistics; a composable finite-size decoy analysis (Lim et al. 2014) remains open.
 - [x] Implement key storage, consumption, and exhaustion. `security/key_store.py`: buffer accounting with replenishment, consumption, capacity cap, and exhaustion counting.
 - [x] Use the same application AES-256-GCM profile, traffic, AAD, nonce/tag rules, authentication policy, and key-refresh policy across modes; vary key establishment explicitly. AES-256-GCM profile in ClassicalSessionConfig; overhead fraction computed per packet; session lifetime configurable.
-- [ ] Define key refresh, nonce handling, and replay protection. Nonce exhaustion not yet modelled; key refresh uses session_lifetime_s parameter only.
+- [ ] Define key refresh, nonce handling, and replay protection. Done: unique counter nonces (sender id + 64-bit counter, authenticated as AAD) and replay rejection. Open: bounded replay window, rekeying policy and nonce-exhaustion handling.
 
 
 ## 7. Controlled experiments
@@ -102,7 +102,7 @@ Gate: finalize the draft research questions, protocol choices, attacker capabili
 - [x] Cloud blockage. `SCENARIOS['optical_cloud_blocked']`; OpticalLinkConfig.cloud_blocked=True; tested.
 - [x] Power shortage. `SCENARIOS['power_shortage']`; rf_signal_loss_db=6.0 + PowerDrain event via _power_drain_factory; runner applies loss to RF link budget.
 - [x] Defined QKD interception scenario. `qkd_intercept_resend` (100 %) and `qkd_intercept_resend_partial` (20 %) scenarios; full interception gives QBER ≈ 25 % and aborts every pass. PNS, detector-blinding and Trojan-horse attacks are not modelled.
-- [ ] Forged or replayed classical messages. Authentication failure is documented as an assumption in ClassicalSessionConfig; a protocol-level replay model is not yet implemented.
+- [x] Forged or replayed classical messages. `security/crypto_exec.py` executes each session and attacks it every pass: a flipped ciphertext bit, a changed header, a packet forged without the key and a replayed packet must all be rejected (scripts/test_crypto_exec.py checks every single-bit flip). A wrong pre-shared key aborts the handshake.
 - [x] Record effects on confidentiality, integrity, authentication, and availability. ExperimentResult records RF availability, key establishment, key-store exhaustion, and QKD abort reasons per pass.
 - [x] Use reproducible seeds and repeat stochastic experiments. ScenarioDefinition.random_seed field; event factories are deterministic by construction.
 - [x] Implement a paired experiment runner with shared physical/environment/attack realizations and separate named protocol RNG streams. `experiments/runner.py`: ExperimentRunner runs both pipelines on the same Orekit geometry and event schedule; `run_comparison()` convenience function.

@@ -6,7 +6,7 @@ Orekit-based satellite motion with radio and QKD link models and Cesium visualiz
 2. **Post-quantum classical**: ML-KEM-768 (NIST FIPS 203) over the RF link.
 3. **Quantum key distribution**: decoy-state BB84 over an optical link, with post-processing over the authenticated RF link.
 
-Key establishment is modelled (message sizes, timing, key lengths); no actual encryption is performed. Unified subsystem/event physics remain future work. Machine learning is deferred; see [TODO.md](TODO.md).
+The every-scenario results table uses fast formulas. The scenario you inspect in detail is also **executed**: real ECDH, ML-KEM-768 and AES-256-GCM sessions (via the `cryptography` library) are attacked with tampered, forged and replayed packets, and BB84 is **simulated photon by photon** (random bits and bases, sifting, error correction, privacy amplification), so formula predictions can be compared with simulated outcomes. Unified subsystem/event physics remain future work. Machine learning is deferred; see [TODO.md](TODO.md).
 
 ## Main interface: Threat Analysis Console
 
@@ -54,7 +54,7 @@ Shared settings include SIM_START_TIME (UTC), SIM_TIME_STEP, SIM_SPEED_MULTIPLIE
 
 ```powershell
 python -m scripts.check_runtime
-python -m unittest scripts.test_runtime_config scripts.test_orbit scripts.test_engine_events scripts.test_experiment_schema scripts.test_communication scripts.test_security scripts.test_console scripts.test_validation_micius scripts.test_study
+python -m unittest scripts.test_runtime_config scripts.test_orbit scripts.test_engine_events scripts.test_experiment_schema scripts.test_communication scripts.test_security scripts.test_console scripts.test_validation_micius scripts.test_study scripts.test_crypto_exec scripts.test_bb84_event
 node scripts/test_console.mjs
 ```
 
@@ -89,7 +89,7 @@ The enhanced viewer defaults to `cubesat_with_events.czml`; use Load CZML for cu
 - `simulation/`: state, clock, Orekit wrapper, engine.
 - `events/`: environmental and attack event prototypes.
 - `communication/`: distinct physical channel models — `rf_link.py` (RF link budget), `optical_link.py` (quantum optical beam, detector gating, decoy-state and intercept-resend model), `qkd_model.py` (asymptotic BB84 key rate), `channel_effects.py` (attack → channel mapping).
-- `security/`: `classical_session.py` (ECDH and ML-KEM session models), `qkd_finite_key.py` (finite-key BB84), `key_store.py` (key buffer).
+- `security/`: `classical_session.py` (ECDH and ML-KEM session models), `crypto_exec.py` (executed handshakes and AES-256-GCM with attacks), `qkd_finite_key.py` (finite-key BB84), `bb84_protocol.py` (event-level BB84 and the QKD key pool), `key_store.py` (key buffer).
 - `experiments/`: scenarios, paired runner, console adapter, and the experiment record schema.
 - `qkd.py`: runnable link analysis example using the communication modules and the shared Orekit propagator.
 - `export_czml.py`: Orekit orbit export.
@@ -99,6 +99,8 @@ The enhanced viewer defaults to `cubesat_with_events.czml`; use Load CZML for cu
 - `scripts/test_security.py`: classical/post-quantum sessions, finite-key QKD, key store, and runner security rules.
 - `scripts/test_validation_micius.py`: comparison with the published Micius satellite QKD results.
 - `scripts/test_study.py`: every-scenario results table, uncertainty sweep, detection column and model card.
+- `scripts/test_crypto_exec.py`: executed handshakes, AES-256-GCM, and rejection of tampered, forged and replayed packets.
+- `scripts/test_bb84_event.py`: event-level BB84 against the formulas, each protocol step, and the photons → key → encrypted message chain.
 - `scripts/test_runtime_config.py`: configuration regression checks.
 - `scripts/test_orbit.py`: orbital invariants, ECEF velocity, UTC, eclipse, contact, engine, exporter, and Tunis end-to-end communication regression checks.
 - `scripts/test_engine_events.py`: engine, event, and clock regression suite.
@@ -120,6 +122,8 @@ Licensed under the MIT License; see [LICENSE](LICENSE).
 | Classical sessions | `security/classical_session.py` | ECDH-P256 / ML-KEM-768 / hybrid; FIPS 203/204 message sizes; PSK or certificate authentication |
 | QKD → RF dependency | `experiments/runner.py` | A pass yields QKD key only if the RF link is available ≥ 10 s and can carry the post-processing traffic |
 | Intercept-resend attack | `communication/optical_link.py` | Error on intercepted bits 1/4 + e_d/2; full interception gives QBER ≈ 25 % |
+| Executed cryptography | `security/crypto_exec.py` | Real ECDH / ML-KEM-768 / X25519+ML-KEM handshakes with PSK or ECDSA / ML-DSA-65 authentication, HKDF, AES-256-GCM; tamper, header-change, forgery and replay attempts must all fail |
+| Event-level BB84 | `security/bb84_protocol.py` | Poisson detections, random bits and bases, intercept-resend, sifting, sampled QBER, Cascade-style error correction with measured leakage, Toeplitz privacy amplification; seeded and reproducible |
 
 **Validation against Micius** (Liao et al. 2017, `scripts/test_validation_micius.py`). Using the paper's published link budget, the model reproduces the measured sifted key rates (≈12 kbit/s at 645 km, ≈1 kbit/s at 1200 km) within a factor of 2, the measured QBER range (1–3 %), and the reported 300,939-bit final key of the 273 s pass within 50 %. An ideal Gaussian beam with the quoted 10 µrad divergence gives 18.6 dB diffraction loss at 1200 km, 3.4 dB less than the paper's own 22 dB estimate. The night-time sky background (500 counts/s before gating) is an assumption; the paper does not report it.
 

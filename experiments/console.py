@@ -86,9 +86,12 @@ def build_console_run(request,run_id):
     try:
         start=propagator.start_time
         end=start+timedelta(hours=options['hours'])
-        baseline = ExperimentRunner(propagator,station,SCENARIOS['baseline'],runner_config).run(start,end,options['dt_s'])
+        # The two detailed runs play out BB84 event by event and execute the real
+        # cryptography; the every-scenario study below stays on the fast formulas.
+        detailed_config = replace(runner_config,event_mode=True,execute_crypto=True)
+        baseline = ExperimentRunner(propagator,station,SCENARIOS['baseline'],detailed_config).run(start,end,options['dt_s'])
         scenario = SCENARIOS[options['scenario']]
-        selected = baseline if options['scenario']=='baseline' else ExperimentRunner(propagator,station,scenario,runner_config).run(start,end,options['dt_s'])
+        selected = baseline if options['scenario']=='baseline' else ExperimentRunner(propagator,station,scenario,detailed_config).run(start,end,options['dt_s'])
         # Include root-found boundaries and model sample instants, not just the
         # nominal grid. Selecting a contact must not show an older orbital state.
         instants={state.timestamp for state in propagator.sample_states(options['hours']*3600,options['dt_s'])}
@@ -147,7 +150,7 @@ def build_console_run(request,run_id):
         limitations=list(selected.model_limitations)+[
             'Playback is a simulation recording, not a live satellite feed.',
             'Scenario channel overrides apply to the entire run; prototype event-marker times do not gate those overrides.',
-            'Classical ECDH and ML-KEM sessions are engineering estimates; no messages are actually encrypted or authenticated.',
+            'In the two detailed runs, ECDH and ML-KEM handshakes and AES-256-GCM messages are executed and attacked once per pass; the results table and session availability remain engineering estimates.',
             'The QKD dependency on the authenticated RF channel is enforced as a time and traffic check; the post-processing messages themselves are not executed.',
             'Finite-key estimates use the Tomamichel et al. (2012) bound with infinite-statistics decoy yields, not a composable finite-size decoy proof.',
             'Key buffer is available only as end-of-pass snapshots and uses asymptotic replenishment gated by RF availability; it is not a validated usable-key timeline.',
@@ -156,7 +159,7 @@ def build_console_run(request,run_id):
         bundle=dict(format=FORMAT,run_id=run_id,request=options,station=station,
             start_time=iso(start),end_time=iso(end),period_seconds=propagator.period_seconds,
             frames=dict(position='ITRF',velocity='ITRF'),telemetry=telemetry,events=events,
-            baseline=baseline.to_dict(),scenario=selected.to_dict(),runner_config=asdict(runner_config),
+            baseline=baseline.to_dict(),scenario=selected.to_dict(),runner_config=asdict(detailed_config),
             limitations=limitations,model_status='engineering_estimates',non_finite_metrics=[])
         from experiments.schema import provenance
         bundle['provenance']=provenance(dict(config,jvm_path=propagator.jvm_path))
@@ -165,7 +168,7 @@ def build_console_run(request,run_id):
         from experiments.study import run_study
         from experiments.model_card import model_card
         bundle['study']=run_study(propagator,station,runner_config,start,end,options['dt_s'])
-        bundle['model_card']=model_card(runner_config)
+        bundle['model_card']=model_card(detailed_config)
         missing=[]
         bundle=strict_numbers(bundle,missing)
         bundle['non_finite_metrics']=missing

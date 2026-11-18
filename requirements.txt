@@ -1,7 +1,8 @@
 # Runtime
 jpype1          # Java bridge to Orekit / Hipparchus (JARs: python -m scripts.fetch_dependencies)
-numpy           # orbital state vectors
+numpy           # orbital state vectors, event-level BB84
 python-dotenv   # optional .env configuration
+cryptography>=50.0  # ECDH, ML-KEM-768 (FIPS 203), ML-DSA-65 (FIPS 204), AES-256-GCM
 
 # Plots (scripts/plot_pass.py)
 matplotlib

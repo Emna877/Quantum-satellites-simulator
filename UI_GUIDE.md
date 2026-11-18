@@ -43,6 +43,15 @@ The console has four tabs: Globe, Pass explorer, Results, and Model & assumption
 
 The sidebar shows the timestamp of the physical sample being inspected. The globe interpolates between recorded positions for smooth animation; numerical telemetry uses the most recent recorded sample. Contact boundaries and communication sample instants are included in the physical recording.
 
+### Executed cryptography and event-level BB84
+
+The two detailed runs (baseline and the scenario chosen on the left) also execute real cryptography and simulate BB84 photon by photon. A run therefore takes about 30–40 s instead of a few seconds.
+
+1. Run **RF Jamming (Moderate)** or **QKD Intercept-Resend (20 %)**, then open **Results** and scroll to the bottom.
+2. **Executed cryptography** lists, per method, how many passes ran a real handshake and whether the decryption, tamper, header-change, forgery and replay checks passed. Every ✓ must read n/n.
+3. **Event-level BB84: formula vs simulation** compares the formula prediction with the simulated sifted bits, QBER and secret key per pass. QBER should agree within a few tenths of a percent; the simulated key is usually 0–25 % smaller because real error correction leaks more than the formula assumes.
+4. In the **Pass explorer**, the ECDH and ML-KEM cards show the executed handshake time and attack results; the QKD card shows simulated vs formula QBER and key, and whether a message encrypted with the QKD key was sent.
+
 ## 4. Test synchronized playback
 
 1. Press **Next contact** to seek to a visible station pass.
