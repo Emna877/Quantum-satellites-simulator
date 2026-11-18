@@ -1,4 +1,4 @@
-"""Local-only UI/API: python -m scripts.serve_console --port 8000.
+"""Console UI/API: python -m scripts.serve_console --port 8000 (add --host 0.0.0.0 inside a container).
 
 Each run is a separate worker process because JPype cannot restart its JVM.
 Only console assets and explicitly addressed run records are served, never .env/.git.
@@ -132,10 +132,11 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     import argparse
     parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--host',default='127.0.0.1')
     parser.add_argument('--port',type=int,default=8000)
     args=parser.parse_args()
-    server=ThreadingHTTPServer(('127.0.0.1',args.port),Handler)
-    print(f'Threat Analysis Console: http://127.0.0.1:{args.port}',flush=True)
+    server=ThreadingHTTPServer((args.host,args.port),Handler)
+    print(f'Threat Analysis Console: http://{args.host}:{args.port}',flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

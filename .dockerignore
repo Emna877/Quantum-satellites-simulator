@@ -1,0 +1,13 @@
+.git
+.venv
+.venv_orekit
+.vscode
+.env
+__pycache__
+*.jar
+data
+docs
+deploy
+TODO.md
+*.czml
+*.csv

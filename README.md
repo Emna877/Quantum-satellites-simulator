@@ -1,4 +1,4 @@
-# Quantum Satellites Simulator
+﻿# Quantum Satellites Simulator
 
 A reproducible satellite cybersecurity threat-analysis platform. It compares three ways to establish a secret key between a low-Earth-orbit satellite and a ground station in Tunis, on the same Orekit orbit and the same passes, under controlled attacks:
 
