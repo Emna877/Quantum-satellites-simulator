@@ -243,12 +243,12 @@ fieldset label{color:var(--label);font-size:11px}
 @media(max-width:1250px){.brand-logo{height:26px}}
 
 /* ==========================================================================
-   Phones (≤ 620 px). Last in the file so the theme above cannot override it.
+   Phones (≤ 620 px wide, or turned sideways). Last in the file so the theme above cannot override it.
    Layout: top bar · tabs · scenario bar · page · (channels) · playback.
    The scenario/telemetry sidebar becomes a full-screen sheet.
    ========================================================================== */
 .mobile-bar,.mission-close{display:none}
-@media(max-width:620px){
+@media(max-width:620px),(max-height:480px) and (max-width:1000px){
  html,body{overflow-x:hidden}
  .topbar{height:54px;padding:0 12px;gap:10px}
  .brand{font-size:14px;letter-spacing:1.3px;gap:9px;margin-right:auto;min-width:0}
@@ -318,6 +318,25 @@ fieldset label{color:var(--label);font-size:11px}
  .busy .beam-loader{transform:none;margin:0}
  .busy strong{font-size:14px}
  .busy p{font-size:12px}
- .empty-state{width:auto;left:12px;right:12px;transform:translateY(-20%)}
+ /* With no run loaded, a compact card at the bottom keeps the globe visible */
+ .empty-state{display:flex;align-items:center;gap:12px;top:auto;bottom:42px;left:10px;right:10px;width:auto;transform:none;padding:10px 12px 10px 14px}
+ .empty-state[hidden]{display:none}
+ .empty-state h2{flex:1;font-size:15px;letter-spacing:1px;line-height:1.25;margin:0}
+ .empty-state .eyebrow,.empty-state p,.empty-state a{display:none}
+ .empty-state .button{flex:none;padding:10px 12px;font-size:11px}
  .notice{font-size:11px}
+}
+
+/* Phones turned sideways: little height, so the channel strip hides and the bars shrink.
+   Heights: top bar 54 + tabs 44 + scenario bar 44 + playback 74. */
+@media(max-height:480px) and (max-width:1000px){
+ .channel-strip{display:none}
+ .mobile-bar{padding:3px 10px}
+ .mission-toggle{min-height:36px;padding:3px 12px}
+ .playback{height:74px;padding:5px 12px}
+ .timeline-markers{display:none}
+ .shell,.stage-explorer .shell{min-height:150px;height:calc(100dvh - 216px)}
+ .stage-results .shell,.stage-model .shell{height:calc(100dvh - 142px)}
+ .camera-tools .button{padding:6px 8px}
+ .empty-state{bottom:10px}
 }
