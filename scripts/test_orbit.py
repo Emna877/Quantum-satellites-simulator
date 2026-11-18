@@ -1,14 +1,7 @@
 """Scientific regression checks: python -m unittest scripts.test_orbit."""
-import asyncio
 from datetime import timedelta, timezone
 import math
 import unittest
-import json
-import os
-import subprocess
-import sys
-import tempfile
-from pathlib import Path
 
 import jpype
 import numpy as np
@@ -119,39 +112,6 @@ class OrbitTests(unittest.TestCase):
         self.assertEqual(sample_offsets(65,30), [0,30,60,65])
         states = self.runtime.sample_states(65,30)
         self.assertEqual((states[-1].timestamp-states[0].timestamp).total_seconds(),65)
-
-    def test_engine_clock_and_state_agree(self):
-        from simulation.engine import SimulationEngine
-        config = dict(self.config, time_step=7.0)
-        config['event_config'] = dict(enable_environmental=False, enable_attacks=False)
-        engine = SimulationEngine(config)
-        engine.setup()
-        async def stop(dt=None):
-            engine.running = False
-        engine.clock.sleep_until_next_tick = stop
-        asyncio.run(engine.run())
-        self.assertEqual(engine.clock.current_time, engine.state.timestamp)
-        self.assertEqual(engine.state.timestamp, engine.propagator.current_time)
-
-    def test_exporters_produce_identical_orekit_positions(self):
-        root = Path(__file__).resolve().parent.parent
-        with tempfile.TemporaryDirectory() as directory:
-            simple = Path(directory) / 'orbit.czml'
-            enhanced = Path(directory) / 'events.czml'
-            environment = dict(os.environ, CZML_DEFAULT_DURATION_SECONDS='65', CZML_STEP_SECONDS='30',
-                SIM_START_TIME='2025-11-09T12:00:00.123456Z',
-                ORBIT_CZML_FILE=str(simple), CZML_OUTPUT_FILE=str(enhanced),
-                ORBIT_CSV_FILE=str(Path(directory)/'orbit.csv'))
-            environment.pop('CZML_DURATION_HOURS', None)
-            environment.pop('ORBIT_PERIOD_MINUTES', None)
-            for script in ('export_czml.py', 'export_czml_with_events.py'):
-                result = subprocess.run([sys.executable, script], cwd=root, env=environment,
-                                        capture_output=True, text=True, timeout=60)
-                self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
-            a, b = json.loads(simple.read_text()), json.loads(enhanced.read_text())
-            self.assertEqual(a[1]['position'], b[1]['position'])
-            self.assertEqual(a[1]['position']['cartesian'][-4], 65)
-            self.assertTrue(a[0]['clock']['interval'].endswith('12:01:05.123456Z'))
 
     def test_simultaneous_geometry_and_attack_events(self):
         from events.manager import EventManager, EventConfig

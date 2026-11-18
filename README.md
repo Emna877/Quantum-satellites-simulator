@@ -59,7 +59,7 @@ The default orbit, epoch and console inputs (altitude, inclination, station, pow
 
 ```powershell
 python -m scripts.check_runtime
-python -m unittest scripts.test_runtime_config scripts.test_orbit scripts.test_engine_events scripts.test_experiment_schema scripts.test_communication scripts.test_security scripts.test_console scripts.test_validation_micius scripts.test_study scripts.test_crypto_exec scripts.test_bb84_event
+python -m unittest scripts.test_runtime_config scripts.test_orbit scripts.test_experiment_schema scripts.test_communication scripts.test_security scripts.test_console scripts.test_validation_micius scripts.test_study scripts.test_crypto_exec scripts.test_bb84_event
 node scripts/test_console.mjs
 ```
 
@@ -75,8 +75,6 @@ The runtime check loads the JAR files and Orekit data, propagates a satellite fo
 - `experiments/`: scenarios, paired runner, every-scenario study, model card, Micius validation, console adapter, record schema.
 - `events/`: scheduled attack and environment event presets (shown as optional surrogate markers; they do not drive results).
 - `scripts/`: console server, dependency download, runtime check, and the test suites.
-
-Older standalone tools from before the console (`czml_viewer*.html`, `export_czml*.py`, `exports/`, `qkd.py`, `run_experiment.py`, `examples/`) are not needed to use the project.
 
 Licensed under the MIT License; see [LICENSE](LICENSE).
 

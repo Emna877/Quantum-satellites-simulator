@@ -2,18 +2,19 @@
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import json
-import os
-from pathlib import Path
-import subprocess
-import sys
 import tempfile
 import unittest
 
 from experiments.schema import (build_experiment, event_definition, event_from_definition,
                                 sample_record, timestamp, validate_experiment, write_experiment)
 from simulation.state import SatelliteState
-from events.attacks import JammingAttack, GPSSpoofing, LaserDazzle
-from scripts.test_engine_events import CLASSES
+from events.attacks import (CommandInjection, GPSSpoofing, JammingAttack, LaserDazzle, PowerDrain,
+                            ThermalSabotage)
+from events.environmental import (AtmosphericDragSpike, EclipseEntry, EclipseExit, GeomagneticStorm,
+                                  MicrometeoroidImpact, SolarFlare)
+
+CLASSES = [SolarFlare,EclipseEntry,EclipseExit,MicrometeoroidImpact,AtmosphericDragSpike,
+           GeomagneticStorm,GPSSpoofing,CommandInjection,JammingAttack,LaserDazzle,PowerDrain,ThermalSabotage]
 
 START = datetime(2025,11,9,12,0,0,123456,tzinfo=timezone.utc)
 
@@ -113,29 +114,6 @@ class ExperimentSchemaTests(unittest.TestCase):
             value = json.loads(path.read_text(encoding='utf-8'))
             validate_experiment(value)
             self.assertEqual(value['metadata']['application_crypto']['status'],'planned')
-
-    def test_real_export_records_match_czml_and_effective_duration(self):
-        root = Path(__file__).resolve().parent.parent
-        with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
-            env = dict(os.environ,CZML_DEFAULT_DURATION_SECONDS='65',CZML_STEP_SECONDS='30',
-                       ORBIT_CSV_FILE=str(base/'orbit.csv'),ORBIT_CZML_FILE=str(base/'orbit.czml'),
-                       CZML_OUTPUT_FILE=str(base/'events.czml'))
-            env.pop('CZML_DURATION_HOURS',None)
-            env.pop('ORBIT_PERIOD_MINUTES',None)
-            for script,czml_file,run_folder in [('export_czml.py','orbit.czml','orbit'),('export_czml_with_events.py','events.czml','events')]:
-                result = subprocess.run([sys.executable,script,'--experiment-dir',str(base/run_folder)],
-                                        cwd=root,env=env,text=True,capture_output=True,timeout=60)
-                self.assertEqual(result.returncode,0,result.stdout+result.stderr)
-                value = json.loads((base/run_folder/'experiment.json').read_text(encoding='utf-8'))
-                validate_experiment(value)
-                czml = json.loads((base/czml_file).read_text(encoding='utf-8'))
-                samples = czml[1]['position']['cartesian']
-                self.assertEqual([sample['state']['position'] for sample in value['samples']],
-                                 [samples[i+1:i+4] for i in range(0,len(samples),4)])
-                self.assertEqual(value['metadata']['config']['duration_seconds'],65)
-                self.assertGreater(value['metadata']['provenance']['assets']['orekit_data']['file_count'],0)
-                self.assertTrue(Path(value['metadata']['provenance']['selected_jvm']).is_file())
 
 
 if __name__ == '__main__':

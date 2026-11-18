@@ -198,16 +198,9 @@ def get_simulation_config() -> dict:
         "enable_streaming": os.getenv('ENABLE_STREAMING', 'false').lower() == 'true',
         "websocket_host": os.getenv('WEBSOCKET_HOST', 'localhost'),
         "websocket_port": number('WEBSOCKET_PORT', 8080, integer=True),
-        "duration_seconds": number('CZML_DEFAULT_DURATION_SECONDS', 3600, integer=True),
-        "sample_step_seconds": number('CZML_STEP_SECONDS', 30, integer=True),
-        "orbit_csv_file": str(resolve_project_path('ORBIT_CSV_FILE', 'orbit_positions.csv')),
-        "orbit_czml_file": str(resolve_project_path('ORBIT_CZML_FILE', 'cubesat.czml')),
-        "comm_csv_file": str(resolve_project_path('COMM_CSV_FILE', 'comm_samples.csv')),
-        "czml_output_file": str(resolve_project_path('CZML_OUTPUT_FILE', 'cubesat_with_events.czml')),
-        "czml_viewer_file": str(resolve_project_path('CZML_VIEWER_FILE', 'czml_viewer_enhanced.html')),
     }
     simulation_start(config['start_time'])
-    for key in ('time_step', 'speed_multiplier', 'duration_seconds', 'sample_step_seconds'):
+    for key in ('time_step', 'speed_multiplier'):
         if config[key] <= 0:
             raise ValueError(f"{key} must be greater than zero")
     if not 1 <= config['websocket_port'] <= 65535:
