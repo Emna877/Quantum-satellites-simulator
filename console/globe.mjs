@@ -1,7 +1,7 @@
 // Cesium is a renderer for recorded ITRF positions, never an orbital propagator.
 export class Globe {
  constructor(onSelect){
-  this.onSelect=onSelect;this.layers={orbit:true,track:true,link:true,events:true,lighting:true};
+  this.onSelect=onSelect;this.layers={orbit:true,track:false,link:true,events:true,lighting:true};
   if(!globalThis.Cesium){document.querySelector('#globeUnavailable').hidden=false;return;}
   try{
    const C=Cesium;
@@ -29,7 +29,7 @@ export class Globe {
    // Depth-tested so the Earth hides the satellite when it is on the far side.
    billboard:{image:'/console/satellite.svg',width:34,height:34,verticalOrigin:C.VerticalOrigin.CENTER},
    label:{text:'QUANTUM CUBESAT',font:'10px monospace',fillColor:C.Color.fromCssColorString('#eef1fb'),pixelOffset:new C.Cartesian2(0,-29),showBackground:true,backgroundColor:C.Color.fromCssColorString('#1b2244e6')},
-   path:{show:true,width:1.8,leadTime:run.period_seconds||6000,trailTime:run.period_seconds||6000,resolution:30,material:new C.PolylineGlowMaterialProperty({glowPower:.12,color:C.Color.fromCssColorString('#5fe3c6')})}});
+   path:{show:true,width:1.8,leadTime:0,trailTime:run.period_seconds||6000,resolution:30,material:new C.PolylineGlowMaterialProperty({glowPower:.12,color:C.Color.fromCssColorString('#5fe3c6')})}});
   const track=run.telemetry.filter(p=>Number.isFinite(p.latitude_deg)&&Number.isFinite(p.longitude_deg)).map(p=>C.Cartesian3.fromDegrees(p.longitude_deg,p.latitude_deg,800));
   if(track.length>1)this.track=v.entities.add({id:'ground-track',polyline:{positions:track,width:1,arcType:C.ArcType.NONE,material:new C.PolylineDashMaterialProperty({color:C.Color.fromCssColorString('#a993ff99'),dashLength:8})}});
   if(run.station){this.stationPosition=C.Cartesian3.fromDegrees(run.station.lon_deg,run.station.lat_deg,run.station.alt_m||0);
@@ -53,8 +53,13 @@ export class Globe {
  }
  update(time,physical,metrics){if(!this.viewer)return;const C=Cesium;this.viewer.clock.currentTime=C.JulianDate.fromDate(new Date(time));if(this.link){this.link.show=this.layers.link&&Number.isFinite(physical?.elev_deg)&&physical.elev_deg>=(this.run.request.min_elevation_deg??5);this.link.polyline.material=C.Color.fromCssColorString(metrics?.rf?.available?'#5fe3c6':'#f4a53c');}}
  follow(){if(this.viewer&&this.satellite)this.viewer.trackedEntity=this.satellite;}
- free(){if(this.viewer)this.viewer.trackedEntity=undefined;}
- reset(){if(!this.viewer)return;this.free();const C=Cesium;const lon=this.run?.station?.lon_deg??10.18,lat=this.run?.station?.lat_deg??23;this.viewer.camera.flyTo({destination:C.Cartesian3.fromDegrees(lon,lat-6,19000000),duration:.6});}
+ // Stop following and release the camera from the satellite's reference frame.
+ unfollow(){if(!this.viewer)return;this.viewer.trackedEntity=undefined;this.viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);}
+ // Free orbit: a wide, freely draggable view of the Earth centred under the satellite's current position.
+ free(){if(!this.viewer)return;const C=Cesium;this.unfollow();const point=this.position?.getValue(this.viewer.clock.currentTime);
+  const below=point?C.Cartographic.fromCartesian(point):C.Cartographic.fromDegrees(this.run?.station?.lon_deg??10.18,this.run?.station?.lat_deg??23);
+  this.viewer.camera.flyTo({destination:C.Cartesian3.fromRadians(below.longitude,below.latitude,16000000),duration:.8});}
+ reset(){if(!this.viewer)return;this.unfollow();const C=Cesium;const lon=this.run?.station?.lon_deg??10.18,lat=this.run?.station?.lat_deg??23;this.viewer.camera.flyTo({destination:C.Cartesian3.fromDegrees(lon,lat-6,19000000),duration:.6});}
  setLayer(name,value){this.layers[name]=value;this.applyLayers();}
  applyLayers(){if(!this.viewer)return;if(this.satellite)this.satellite.path.show=this.layers.orbit;if(this.track)this.track.show=this.layers.track;if(this.link)this.link.show=this.layers.link;for(const event of this.events||[])event.show=this.layers.events;this.viewer.scene.globe.enableLighting=this.layers.lighting;}
  resize(){this.viewer?.resize();}
