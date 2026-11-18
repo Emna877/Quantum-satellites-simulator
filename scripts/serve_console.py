@@ -72,6 +72,9 @@ RUN_MANAGER=Runs()
 
 
 class Handler(BaseHTTPRequestHandler):
+    # Local runs refuse other Host names (DNS rebinding); a public deployment serves its own domain.
+    local_only=True
+
     def send(self,status,content,content_type='application/json; charset=utf-8'):
         if isinstance(content,(dict,list)):
             content=json.dumps(content,allow_nan=False).encode('utf-8')
@@ -111,7 +114,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path!='/api/run':
             return self.send(404,dict(error='Unknown endpoint'))
         origin=self.headers.get('Origin')
-        if urlsplit('http://'+self.headers.get('Host','')).hostname not in ('127.0.0.1','localhost'):
+        if self.local_only and urlsplit('http://'+self.headers.get('Host','')).hostname not in ('127.0.0.1','localhost'):
             return self.send(403,dict(error='Only localhost requests are allowed'))
         if origin and urlsplit(origin).netloc!=self.headers.get('Host'):
             return self.send(403,dict(error='Cross-origin requests are not allowed'))
@@ -135,6 +138,7 @@ def main():
     parser.add_argument('--host',default='127.0.0.1')
     parser.add_argument('--port',type=int,default=8000)
     args=parser.parse_args()
+    Handler.local_only=args.host in ('127.0.0.1','localhost','::1')
     server=ThreadingHTTPServer((args.host,args.port),Handler)
     print(f'Threat Analysis Console: http://{args.host}:{args.port}',flush=True)
     try:
