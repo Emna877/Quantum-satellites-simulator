@@ -229,6 +229,15 @@ fieldset label{color:var(--label);font-size:11px}
 .busy strong{font:600 17px var(--display);letter-spacing:1.2px;text-transform:uppercase;color:var(--text)}
 .busy p{font-size:13px;color:var(--label);margin-top:8px;max-width:330px;line-height:1.5}
 .busy .beam-loader{transform:scale(1.5);margin:18px 10px}
+/* Progress bar under the loader: percentage, current step and estimated time left. */
+.busy-body{min-width:0;flex:1}
+.busy #busyStage{margin-top:10px;color:var(--text)}
+.run-progress{height:6px;margin-top:12px;background:#1a2b40;border:1px solid #2c4660;border-radius:4px;overflow:hidden}
+.run-progress span{display:block;height:100%;width:0;background:linear-gradient(90deg,#3aa7c4,var(--cyan));box-shadow:0 0 8px #5fe3c688;transition:width .6s ease}
+.run-progress-meta{display:flex;justify-content:space-between;gap:16px;margin-top:7px;font:11px var(--mono);color:var(--label)}
+.run-progress-meta b{color:var(--text);font-weight:600}
+.busy #busyText{font-size:11px;margin-top:10px}
+@media(prefers-reduced-motion:reduce){.run-progress span{transition:none}}
 /* Project logo in the top bar (light-on-dark version of the Q-orbit mark). */
 .brand-logo{height:32px;width:auto;flex:none}
 @media(max-width:1250px){.brand-logo{height:26px}}

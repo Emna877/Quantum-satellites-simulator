@@ -216,7 +216,7 @@ class ExperimentRunner:
         self._scenario = scenario
         self._cfg = config or RunnerConfig()
 
-    def run(self, start: datetime, end: datetime, dt_s: float = 30.0) -> ExperimentResult:
+    def run(self, start: datetime, end: datetime, dt_s: float = 30.0, progress=None) -> ExperimentResult:
         """Execute the paired run and return structured results.
 
         Parameters
@@ -227,6 +227,9 @@ class ExperimentRunner:
             UTC end time (timezone-aware).
         dt_s : float
             Sampling interval, seconds.
+        progress : callable, optional
+            Called as progress(fraction, pass_number, pass_count) before each pass and
+            once at the end; fraction is the share of contact time already processed.
         """
         if start.tzinfo is None:
             raise ValueError("start must be timezone-aware")
@@ -255,11 +258,14 @@ class ExperimentRunner:
 
         passes = []
         total_contact_s = 0.0
+        planned_contact_s = sum((w['end'] - w['start']).total_seconds() for w in windows)
 
         for index, w in enumerate(windows):
             pass_start = w['start']
             pass_end = w['end']
             duration_s = (pass_end - pass_start).total_seconds()
+            if progress:
+                progress(total_contact_s / planned_contact_s if planned_contact_s else 0.0, index + 1, len(windows))
             total_contact_s += duration_s
 
             samples, finite_pass, classical_summary, pqc_summary, totals = self._run_pass(
@@ -281,6 +287,8 @@ class ExperimentRunner:
                 **extras,
             })
 
+        if progress:
+            progress(1.0, len(windows), len(windows))
         contact_fraction = total_contact_s / total_s if total_s > 0 else 0.0
 
         return ExperimentResult(

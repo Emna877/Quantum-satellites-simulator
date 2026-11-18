@@ -19,7 +19,7 @@ The globe needs internet access for Cesium and map imagery, and a browser with W
 
 1. Open **☰ Events · History · Settings → Settings**. Keep the default orbit, Tunis station, 24-hour duration and 60-second sample interval for a first run. The default epoch is a simulation date, not today's date.
 2. Choose a scenario in the left sidebar, for example **RF Jamming (Moderate)**. Choosing a scenario starts a run straight away; **Run experiment** reruns with the current settings.
-3. While the run computes (about 30–40 s), a loading box shows photons travelling down a beam. The previous recording stays visible until the new one is ready. A failed run shows its error rather than substitute data.
+3. While the run computes (about 30–40 s; about 20 s for the baseline alone), a loading box shows photons travelling down a beam, with a progress bar, the current step (for example "pass 2 of 5") and the estimated time left, based on recent runs on the same server. The previous recording stays visible until the new one is ready. A failed run shows its error rather than substitute data.
 4. The new recording starts at the beginning of its timeline and plays automatically. On a page refresh, the latest recording is loaded again.
 5. The console says **SIMULATION · NOT LIVE**: its UTC clock follows the experiment, not your computer clock.
 
@@ -41,7 +41,7 @@ The console has four tabs: Globe, Pass explorer, Results, and Model & assumption
 | Results | Read the method cards, the results table, the key figure and the tables at the bottom | One row per scenario: ECDH and ML-KEM sessions, QKD key (nominal and sweep range), passes with key, an "attack detected?" verdict and the main abort reason. The loaded scenario row is highlighted. |
 | Model & assumptions | Check the Micius table and the formulas | Every formula has a source; every parameter of this run is listed; the five Micius checks show model vs paper with tolerance. |
 | Drawer · Events | Filter and click an event; tick "Show surrogate attack markers" | Surrogate markers (scheduled times that do not change results) are hidden by default. |
-| Drawer · History | Load an earlier run | Older runs without newer sections still open; missing tables are explained. |
+| Drawer · History | Load an earlier run | Older runs without newer sections still open; missing tables are explained. The local server lists every run; a public deployment (started with `--host 0.0.0.0`) lists only the runs started in the same browser, so each visitor starts with an empty console. |
 | Drawer · Settings | Change aperture or background, then **Run with these settings** | Python recomputes results. Editing a field alone never changes an existing recording. |
 
 ### Executed cryptography and event-level BB84

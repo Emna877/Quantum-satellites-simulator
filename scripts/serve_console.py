@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 from urllib.parse import urlsplit, unquote
 import uuid
 
@@ -27,7 +28,7 @@ class Runs:
         self.jobs={}
         self.lock=threading.Lock()
 
-    def start(self,request):
+    def start(self,request,owner=None):
         values=validate_request(request)
         with self.lock:
             if any(job['process'].poll() is None for job in self.jobs.values()):
@@ -36,13 +37,17 @@ class Runs:
             folder=RUNS/identity
             folder.mkdir(parents=True)
             (folder/'request.json').write_text(json.dumps(values),encoding='utf-8')
+            if owner:
+                (folder/'owner').write_text(owner,encoding='utf-8')
             with (folder/'worker.log').open('w',encoding='utf-8') as output:
                 process=subprocess.Popen([sys.executable,'-m','experiments.console',
-                    '--request',str(folder/'request.json'),'--out',str(folder/'run.json'),'--id',identity],
+                    '--request',str(folder/'request.json'),'--out',str(folder/'run.json'),'--id',identity,
+                    '--progress',str(folder/'progress.json')],
                     cwd=ROOT,stdout=output,stderr=subprocess.STDOUT,
                     env=dict(os.environ,PYTHONIOENCODING='utf-8'),
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
-            self.jobs[identity]=dict(process=process,folder=folder)
+            self.jobs[identity]=dict(process=process,folder=folder,started=time.monotonic(),
+                                     baseline_only=values['scenario']=='baseline')
             return identity
 
     def status(self,identity):
@@ -51,21 +56,48 @@ class Runs:
         folder=RUNS/identity
         job=self.jobs.get(identity)
         if job and job['process'].poll() is None:
-            return dict(id=identity,status='running',message='Computing shared Orekit geometry and both model pipelines…')
+            try:
+                progress=json.loads((folder/'progress.json').read_text(encoding='utf-8'))
+            except (OSError,ValueError):
+                progress=dict(fraction=0.0,stage='Starting the simulation')
+            return dict(id=identity,status='running',message=progress['stage'],progress=progress['fraction'],
+                        elapsed_s=round(time.monotonic()-job['started'],1),expected_s=self.typical_duration(job['baseline_only']))
         if (folder/'run.json').is_file():
             return dict(id=identity,status='completed')
         if job:
             return dict(id=identity,status='failed',message=(folder/'worker.log').read_text(encoding='utf-8')[-3000:])
         raise FileNotFoundError('Run not found')
 
-    def history(self):
+    def typical_duration(self,baseline_only):
+        """Median duration of the last five completed runs of the same kind on this machine, or None.
+
+        A baseline run simulates the photons once; any other scenario simulates them twice."""
+        durations=[]
+        if RUNS.exists():
+            for folder in sorted(RUNS.iterdir(),key=lambda p:p.stat().st_mtime,reverse=True):
+                if (folder/'run.json').is_file() and (folder/'request.json').is_file() and baseline_only==(
+                        json.loads((folder/'request.json').read_text(encoding='utf-8')).get('scenario')=='baseline'):
+                    durations.append((folder/'run.json').stat().st_mtime-(folder/'request.json').stat().st_mtime)
+                if len(durations)==5:
+                    break
+        return round(sorted(durations)[len(durations)//2],1) if durations else None
+
+    def history(self,owner=None):
+        """Completed runs, newest first: all of them, or only those started by one visitor."""
         records=[]
         if RUNS.exists():
             for folder in sorted(RUNS.iterdir(),key=lambda p:p.stat().st_mtime,reverse=True):
-                if ID.fullmatch(folder.name) and (folder/'run.json').is_file():
+                if ID.fullmatch(folder.name) and (folder/'run.json').is_file() and (owner is None or owned(folder,owner)):
                     request=json.loads((folder/'request.json').read_text(encoding='utf-8'))
                     records.append(dict(id=folder.name,**request))
         return records[:50]
+
+
+def owned(folder,owner):
+    try:
+        return (folder/'owner').read_text(encoding='utf-8')==owner
+    except OSError:
+        return False
 
 
 RUN_MANAGER=Runs()
@@ -88,13 +120,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
+    def visitor(self):
+        """Anonymous per-browser ID; on a public deployment each visitor sees only their own runs."""
+        value=self.headers.get('X-Visitor','')
+        return value if ID.fullmatch(value) else ''
+
     def do_GET(self):
         path=unquote(urlsplit(self.path).path)
         try:
             if path=='/api/config':
                 return self.send(200,dict(defaults=defaults(),scenarios=catalog(),format='console_run.v1'))
             if path=='/api/runs':
-                return self.send(200,RUN_MANAGER.history())
+                return self.send(200,RUN_MANAGER.history(None if self.local_only else self.visitor()))
             if path.startswith('/api/jobs/'):
                 return self.send(200,RUN_MANAGER.status(path.split('/')[-1]))
             if path.startswith('/api/runs/'):
@@ -124,7 +161,7 @@ class Handler(BaseHTTPRequestHandler):
             size=int(self.headers.get('Content-Length','0'))
             if not 0 < size <= 65536:
                 raise ValueError('Request body is too large or empty')
-            identity=RUN_MANAGER.start(json.loads(self.rfile.read(size)))
+            identity=RUN_MANAGER.start(json.loads(self.rfile.read(size)),self.visitor())
             self.send(202,dict(id=identity,status='running'))
         except (ValueError,TypeError,KeyError) as exc:
             self.send(400,dict(error=str(exc)))

@@ -64,7 +64,9 @@ def strict_numbers(value,missing=None,path=''):
     return value
 
 
-def build_console_run(request,run_id):
+def build_console_run(request,run_id,progress=None):
+    report=progress or (lambda fraction,stage: None)
+    report(0.02,'Starting Java and the Orekit orbit library')
     from simulation.propagator import OrekitPropagator, iso
     from experiments.runner import ExperimentRunner, RunnerConfig
     from communication.rf_link import RFLinkConfig
@@ -84,14 +86,23 @@ def build_console_run(request,run_id):
         min_elevation_deg=options['min_elevation_deg'])
     propagator = OrekitPropagator.from_config(config)
     try:
+        report(0.06,'Computing the orbit and the station passes')
         start=propagator.start_time
         end=start+timedelta(hours=options['hours'])
         # The two detailed runs play out BB84 event by event and execute the real
         # cryptography; the every-scenario study below stays on the fast formulas.
         detailed_config = replace(runner_config,event_mode=True,execute_crypto=True)
-        baseline = ExperimentRunner(propagator,station,SCENARIOS['baseline'],detailed_config).run(start,end,options['dt_s'])
+        # Photon-level BB84 dominates the run time, so the two detailed runs take most of the bar.
         scenario = SCENARIOS[options['scenario']]
-        selected = baseline if options['scenario']=='baseline' else ExperimentRunner(propagator,station,scenario,detailed_config).run(start,end,options['dt_s'])
+        split = 0.89 if options['scenario']=='baseline' else 0.49
+        def stage(low,high,name):
+            return lambda fraction,number,count: report(low+(high-low)*fraction,
+                f'{name}: simulating photons, pass {number} of {count}')
+        baseline = ExperimentRunner(propagator,station,SCENARIOS['baseline'],detailed_config).run(
+            start,end,options['dt_s'],progress=stage(0.06,split,'Baseline'))
+        selected = baseline if options['scenario']=='baseline' else ExperimentRunner(propagator,station,scenario,detailed_config).run(
+            start,end,options['dt_s'],progress=stage(0.49,0.89,scenario.name))
+        report(0.89,'Recording the orbit and events')
         # Include root-found boundaries and model sample instants, not just the
         # nominal grid. Selecting a contact must not show an older orbital state.
         instants={state.timestamp for state in propagator.sample_states(options['hours']*3600,options['dt_s'])}
@@ -165,10 +176,12 @@ def build_console_run(request,run_id):
         bundle['provenance']=provenance(dict(config,jvm_path=propagator.jvm_path))
         bundle['physical_config']=config
         # Every scenario × optical-uncertainty sweep on the same geometry, for the results table.
+        report(0.96,'Comparing all 13 scenarios')
         from experiments.study import run_study
         from experiments.model_card import model_card
         bundle['study']=run_study(propagator,station,runner_config,start,end,options['dt_s'])
         bundle['model_card']=model_card(detailed_config)
+        report(0.98,'Saving the results')
         missing=[]
         bundle=strict_numbers(bundle,missing)
         bundle['non_finite_metrics']=missing
@@ -183,8 +196,16 @@ def main():
     parser.add_argument('--request',required=True)
     parser.add_argument('--out',required=True)
     parser.add_argument('--id',required=True)
+    parser.add_argument('--progress',help='JSON file updated with the fraction done and the current stage')
     args=parser.parse_args()
-    result=build_console_run(json.loads(Path(args.request).read_text(encoding='utf-8')),args.id)
+    def progress(fraction,stage):
+        # Write then rename, so the server never reads a half-written file.
+        target=Path(args.progress)
+        temporary=target.with_suffix('.tmp')
+        temporary.write_text(json.dumps(dict(fraction=round(fraction,4),stage=stage)),encoding='utf-8')
+        temporary.replace(target)
+    result=build_console_run(json.loads(Path(args.request).read_text(encoding='utf-8')),args.id,
+                             progress if args.progress else None)
     Path(args.out).write_text(json.dumps(result,allow_nan=False),encoding='utf-8')
 
 
