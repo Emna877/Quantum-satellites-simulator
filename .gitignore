@@ -73,3 +73,6 @@ htmlcov/
 # OS
 Thumbs.db
 *.log
+
+# Personal notes (kept locally, not in the repo)
+TODO.md
