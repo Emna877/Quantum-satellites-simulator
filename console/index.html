@@ -14,16 +14,18 @@
  <a class="brand" href="#globe" aria-label="Quantum Satellites Simulator globe"><img class="brand-logo" src="/console/logo.png" alt=""><span>QUANTUM <b>SATELLITES</b><small>THREAT ANALYSIS CONSOLE</small></span></a>
  <div class="top-context"><span class="status-dot"></span> LOCAL RESEARCH ENVIRONMENT <span class="tag">SIMULATION · NOT LIVE</span></div>
  <button id="importButton" class="button ghost">↥ Import run</button><input id="importFile" type="file" accept=".json,application/json" hidden>
- <button class="button primary" type="submit" form="runForm" id="runButton">▶ Run experiment</button>
+ <button class="button primary" type="submit" form="runForm" id="runButton" aria-label="Run experiment">▶<span class="nav-long"> Run experiment</span></button>
 </header>
 <nav class="nav" aria-label="Workspaces">
- <a href="#globe" data-workspace="globe">Globe</a><a href="#explorer" data-workspace="explorer">Pass explorer</a><a href="#results" data-workspace="results">Results</a><a href="#model" data-workspace="model">Model &amp; assumptions</a>
+ <a href="#globe" data-workspace="globe">Globe</a><a href="#explorer" data-workspace="explorer">Pass explorer</a><a href="#results" data-workspace="results">Results</a><a href="#model" data-workspace="model">Model<span class="nav-long">&nbsp;&amp; assumptions</span></a>
  <span class="nav-status" id="connectionStatus" role="status">Connecting to local runtime…</span>
- <button class="button small ghost nav-drawer" id="openDrawer" aria-controls="drawer">☰ Events · History · Settings</button>
+ <button class="button small ghost nav-drawer" id="openDrawer" aria-controls="drawer" aria-label="Events, history and settings">☰<span class="nav-long"> Events · History · Settings</span></button>
 </nav>
+<div class="mobile-bar"><button id="openMission" class="mission-toggle" aria-controls="missionPanel" aria-expanded="false"><span class="eyebrow">SCENARIO</span><strong id="mobileScenario">Choose a scenario</strong><span class="mission-caret" aria-hidden="true">▾</span></button></div>
 <div id="notice" class="notice" role="status" hidden></div>
 <main class="shell">
- <aside class="sidebar left-sidebar" aria-label="Mission telemetry">
+ <aside class="sidebar left-sidebar" id="missionPanel" aria-label="Mission telemetry">
+  <button class="icon-button mission-close" id="closeMission" aria-label="Close scenario panel">✕</button>
   <div class="section-heading"><span>MISSION CONTEXT</span><span class="mini-dot"></span></div>
   <div class="satellite-heading"><img src="/console/satellite.svg" alt=""><div><h2>Quantum CubeSat</h2><span class="muted">LEO · Orekit two-body model</span></div></div>
   <label class="field-label" for="scenarioSelect">SCENARIO SHOWN IN DETAIL</label>
