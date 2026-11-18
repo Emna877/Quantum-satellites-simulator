@@ -1,4 +1,4 @@
-# Threat Analysis Console in one container (used by the Hugging Face Space).
+# Threat Analysis Console in one container (Render, Hugging Face Spaces or any Docker host).
 #   docker build -t quantum-satellites .
 #   docker run -p 7860:7860 quantum-satellites   ->  http://localhost:7860
 FROM python:3.13-slim
@@ -23,5 +23,6 @@ RUN python -m scripts.fetch_dependencies \
     && chown -R user:user /app
 
 USER user
+# Hosts such as Render set PORT; Hugging Face uses 7860.
 EXPOSE 7860
-CMD ["python", "-m", "scripts.serve_console", "--host", "0.0.0.0", "--port", "7860"]
+CMD python -m scripts.serve_console --host 0.0.0.0 --port ${PORT:-7860}
