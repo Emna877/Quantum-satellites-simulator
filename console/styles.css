@@ -229,3 +229,6 @@ fieldset label{color:var(--label);font-size:11px}
 .busy strong{font:600 17px var(--display);letter-spacing:1.2px;text-transform:uppercase;color:var(--text)}
 .busy p{font-size:13px;color:var(--label);margin-top:8px;max-width:330px;line-height:1.5}
 .busy .beam-loader{transform:scale(1.5);margin:18px 10px}
+/* Project logo in the top bar (light-on-dark version of the Q-orbit mark). */
+.brand-logo{height:32px;width:auto;flex:none}
+@media(max-width:1250px){.brand-logo{height:26px}}

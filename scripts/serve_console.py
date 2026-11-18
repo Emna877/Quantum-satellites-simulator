@@ -101,7 +101,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200,(RUNS/identity/'run.json').read_bytes())
             relative='index.html' if path in ('/','/console','/console/') else path.removeprefix('/console/').lstrip('/')
             file=(ROOT/'console'/relative).resolve()
-            if not file.is_relative_to(ROOT/'console') or file.suffix not in ('.html','.css','.js','.mjs','.svg') or not file.is_file():
+            if not file.is_relative_to(ROOT/'console') or file.suffix not in ('.html','.css','.js','.mjs','.svg','.png') or not file.is_file():
                 raise FileNotFoundError('Asset not found')
             return self.send(200,file.read_bytes(),'text/javascript' if file.suffix=='.mjs' else mimetypes.guess_type(file.name)[0] or 'application/octet-stream')
         except (FileNotFoundError,ValueError) as exc:
